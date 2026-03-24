@@ -44,7 +44,7 @@ compute_amortization <- function(loan_amount, annual_rate, term_years) {
 run_simulation <- function(
     home_price, down_pct, mortgage_rate, loan_term,
     closing_cost_pct, home_appreciation,
-    property_tax_rate, insurance_annual, maintenance_pct,
+    property_tax_rate, prop_tax_cap, insurance_annual, maintenance_pct,
     selling_cost_pct,
     monthly_rent, rent_increase,
     investment_return, inflation_rate,
@@ -61,18 +61,23 @@ run_simulation <- function(
 
   monthly_inv_return <- (1 + investment_return / 100)^(1 / 12) - 1
 
+  # Prop 13 style: assessed value grows at the capped rate, not market rate
+  monthly_assess_growth <- (1 + prop_tax_cap / 100)^(1 / 12)
+
   # Pre-allocate
   buy_net_worth <- numeric(months + 1)
   rent_net_worth <- numeric(months + 1)
   buy_monthly_cost <- numeric(months)
   rent_monthly_cost <- numeric(months)
   home_values <- numeric(months + 1)
+  assessed_values <- numeric(months + 1)
   home_equity <- numeric(months + 1)
   rent_portfolio <- numeric(months + 1)
   buy_portfolio <- numeric(months + 1)
   loan_balance <- numeric(months + 1)
 
   home_values[1] <- home_price
+  assessed_values[1] <- home_price
   loan_balance[1] <- loan_amount
   home_equity[1] <- home_price * (1 - selling_cost_pct / 100) - loan_amount
   rent_portfolio[1] <- upfront_cash
@@ -87,6 +92,9 @@ run_simulation <- function(
     hv <- home_values[t] * monthly_appr
     home_values[t + 1] <- hv
 
+    av <- assessed_values[t] * monthly_assess_growth
+    assessed_values[t + 1] <- av
+
     if (t <= nrow(amort)) {
       mortgage_pmt <- amort$payment[t]
       bal <- amort$balance[t]
@@ -96,7 +104,7 @@ run_simulation <- function(
     }
     loan_balance[t + 1] <- bal
 
-    prop_tax_monthly <- hv * property_tax_rate / 100 / 12
+    prop_tax_monthly <- av * property_tax_rate / 100 / 12
     ins_monthly <- insurance_annual / 12
     maint_monthly <- hv * maintenance_pct / 100 / 12
 
@@ -155,7 +163,7 @@ final_advantage <- function(home_price, ...) {
 find_breakeven_price <- function(
     down_pct, mortgage_rate, loan_term,
     closing_cost_pct, home_appreciation,
-    property_tax_rate, insurance_annual, maintenance_pct,
+    property_tax_rate, prop_tax_cap, insurance_annual, maintenance_pct,
     selling_cost_pct,
     monthly_rent, rent_increase,
     investment_return, inflation_rate,
@@ -167,6 +175,7 @@ find_breakeven_price <- function(
     loan_term = loan_term, closing_cost_pct = closing_cost_pct,
     home_appreciation = home_appreciation,
     property_tax_rate = property_tax_rate,
+    prop_tax_cap = prop_tax_cap,
     insurance_annual = insurance_annual, maintenance_pct = maintenance_pct,
     selling_cost_pct = selling_cost_pct, monthly_rent = monthly_rent,
     rent_increase = rent_increase, investment_return = investment_return,
@@ -193,7 +202,7 @@ find_breakeven_price <- function(
 find_breakeven_rent <- function(
     home_price, down_pct, mortgage_rate, loan_term,
     closing_cost_pct, home_appreciation,
-    property_tax_rate, insurance_annual, maintenance_pct,
+    property_tax_rate, prop_tax_cap, insurance_annual, maintenance_pct,
     selling_cost_pct,
     rent_increase,
     investment_return, inflation_rate,
@@ -206,6 +215,7 @@ find_breakeven_rent <- function(
     closing_cost_pct = closing_cost_pct,
     home_appreciation = home_appreciation,
     property_tax_rate = property_tax_rate,
+    prop_tax_cap = prop_tax_cap,
     insurance_annual = insurance_annual, maintenance_pct = maintenance_pct,
     selling_cost_pct = selling_cost_pct, rent_increase = rent_increase,
     investment_return = investment_return, inflation_rate = inflation_rate,
@@ -279,10 +289,17 @@ input_home <- accordion_panel(
 input_ownership <- accordion_panel(
   "Ownership Costs",
   icon = icon("wrench"),
-  sliderInput("property_tax", "Property Tax (%/yr)", 0, 4, 1.2, step = 0.1),
+  sliderInput("property_tax", "Property Tax (%/yr)", 0, 4, 1.1, step = 0.1),
   help_text(
-    "Annual tax on property value, paid to your county/city.",
-    "Varies widely: ~0.3% in Hawaii, ~2.5% in New Jersey. Check your area."
+    "Annual tax as a % of assessed value. California's base rate is 1% (Prop 13),",
+    "plus local bonds and Mello-Roos districts typically add 0.1\u20130.4%.",
+    "New buyers in the Bay Area often pay ~1.1\u20131.25% effective."
+  ),
+  sliderInput("prop_tax_cap", "Assessment Growth Cap (%/yr)", 0, 10, 2, step = 0.5),
+  help_text(
+    "Max annual increase in assessed value. California Prop 13 caps this at 2%/yr",
+    "regardless of market appreciation. Set to match home appreciation to disable",
+    "the cap (i.e., tax on full market value, as in most other states)."
   ),
   numericInput("insurance_annual", "Insurance ($/yr)", 1800, min = 0, step = 100),
   help_text("Homeowner's insurance. Required by your lender. Covers damage, liability, etc."),
@@ -542,6 +559,19 @@ ui <- page_sidebar(
           "For most people these roughly wash out, but your situation may differ."
         ),
 
+        tags$h4("California / Prop 13 Note"),
+        tags$p(
+          "This model supports Prop 13-style property tax assessment caps. In California,",
+          "your property is taxed on its", tags$em("assessed"), "value (purchase price),",
+          "not its current market value. The assessed value can increase at most 2% per year,",
+          "even if the home appreciates at 5\u201310%. This means your property tax bill grows",
+          "much slower than in states that reassess at market value annually."
+        ),
+        tags$p(
+          "To model a non-Prop-13 state, set the Assessment Growth Cap equal to your Home",
+          "Appreciation rate, so the assessed value tracks the market."
+        ),
+
         tags$h4("Rules of Thumb"),
         tags$ul(
           tags$li(tags$strong("The 5-year rule:"),
@@ -573,6 +603,7 @@ server <- function(input, output, session) {
       closing_cost_pct = input$closing_cost_pct,
       home_appreciation = input$home_appreciation,
       property_tax_rate = input$property_tax,
+      prop_tax_cap = input$prop_tax_cap,
       insurance_annual = input$insurance_annual,
       maintenance_pct = input$maintenance_pct,
       selling_cost_pct = input$selling_cost_pct,
@@ -636,6 +667,7 @@ server <- function(input, output, session) {
       closing_cost_pct = input$closing_cost_pct,
       home_appreciation = input$home_appreciation,
       property_tax_rate = input$property_tax,
+      prop_tax_cap = input$prop_tax_cap,
       insurance_annual = input$insurance_annual,
       maintenance_pct = input$maintenance_pct,
       selling_cost_pct = input$selling_cost_pct,
