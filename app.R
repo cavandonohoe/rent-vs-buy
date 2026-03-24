@@ -833,7 +833,7 @@ server <- function(input, output, session) {
       theme(plot.caption = element_text(size = 10, colour = "grey50", hjust = 0))
   })
 
-  # Amortization table (annual summary)
+  # Amortization table with rent vs buy comparison
   output$amort_table <- renderTable({
     dp <- input$home_price * input$down_pct / 100
     loan <- input$home_price - dp
@@ -843,23 +843,37 @@ server <- function(input, output, session) {
     a$cum_principal <- cumsum(a$principal)
 
     yearly <- a[a$month %% 12 == 0, ]
+    yr_interest <- yearly$cum_interest - c(0, yearly$cum_interest[-nrow(yearly)])
+    yr_principal <- yearly$cum_principal - c(0, yearly$cum_principal[-nrow(yearly)])
+
+    d <- sim()
+    horizon <- input$horizon
+    years <- seq_len(min(term, horizon))
+    sim_rows <- d[d$year %in% years, ]
+
+    n <- min(nrow(yearly), length(years))
+    yearly <- yearly[seq_len(n), ]
+    sim_rows <- sim_rows[seq_len(n), ]
+    yr_interest <- yr_interest[seq_len(n)]
+    yr_principal <- yr_principal[seq_len(n)]
+
     data.frame(
       Year = yearly$month / 12,
-      Payment = dollar(yearly$payment * 12, accuracy = 1),
-      `Interest (Year)` = dollar(
-        yearly$cum_interest - c(0, yearly$cum_interest[-nrow(yearly)]),
-        accuracy = 1
+      `Mortgage P&I` = dollar(yearly$payment * 12, accuracy = 1),
+      `To Interest` = dollar(yr_interest, accuracy = 1),
+      `To Principal` = dollar(yr_principal, accuracy = 1),
+      `Cumul. Interest` = dollar(yearly$cum_interest, accuracy = 1),
+      `Loan Balance` = dollar(yearly$balance, accuracy = 1),
+      `Home Value` = dollar(sim_rows$home_value, accuracy = 1),
+      `Home Equity` = dollar(sim_rows$home_equity, accuracy = 1),
+      `Buy Net Worth` = dollar(sim_rows$buy_net_worth, accuracy = 1),
+      `Rent Net Worth` = dollar(sim_rows$rent_net_worth, accuracy = 1),
+      `Buy Advantage` = dollar(
+        sim_rows$buy_net_worth - sim_rows$rent_net_worth, accuracy = 1
       ),
-      `Principal (Year)` = dollar(
-        yearly$cum_principal - c(0, yearly$cum_principal[-nrow(yearly)]),
-        accuracy = 1
-      ),
-      `Total Interest Paid` = dollar(yearly$cum_interest, accuracy = 1),
-      `Total Principal Paid` = dollar(yearly$cum_principal, accuracy = 1),
-      `Remaining Balance` = dollar(yearly$balance, accuracy = 1),
       check.names = FALSE
     )
-  }, striped = TRUE, hover = TRUE, spacing = "s", align = "lrrrrrr")
+  }, striped = TRUE, hover = TRUE, spacing = "s", align = "lrrrrrrrrrr")
 
   # Summary table at key milestones
   output$summary_table <- renderTable({
