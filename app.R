@@ -315,10 +315,12 @@ input_rental <- accordion_panel(
   icon = icon("building"),
   numericInput("monthly_rent", "Monthly Rent ($)", 3000, min = 100, step = 100),
   help_text("Your current or expected monthly rent for a comparable place."),
-  sliderInput("rent_increase", "Annual Rent Increase (%)", 0, 10, 3, step = 0.5),
+  sliderInput("rent_increase", "Annual Rent Increase (%)", 0, 10, 2, step = 0.5),
   help_text(
-    "How much rent goes up each year. National average is ~3\u20135%.",
-    "In hot markets it can be higher. Rent control areas may be lower."
+    "How much rent goes up each year. Santa Monica rent control caps increases",
+    "at 75% of CPI (max 3%/yr). Recent actuals: 2.3% (2025), 3.0% (2024),",
+    "2.8% (2023). Historical average is ~2\u20132.5%. Set higher for non-rent-controlled units",
+    "or if you expect to move to a new lease at market rate."
   )
 )
 
