@@ -313,7 +313,7 @@ input_ownership <- accordion_panel(
 input_rental <- accordion_panel(
   "Rental",
   icon = icon("building"),
-  numericInput("monthly_rent", "Monthly Rent ($)", 2500, min = 100, step = 100),
+  numericInput("monthly_rent", "Monthly Rent ($)", 3000, min = 100, step = 100),
   help_text("Your current or expected monthly rent for a comparable place."),
   sliderInput("rent_increase", "Annual Rent Increase (%)", 0, 10, 3, step = 0.5),
   help_text(
