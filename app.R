@@ -243,45 +243,95 @@ find_breakeven_year <- function(sim_data) {
 
 # -- UI ------------------------------------------------------------------------
 
+help_text <- function(...) tags$small(class = "text-muted", ...)
+
 input_home <- accordion_panel(
   "Home Purchase",
   icon = icon("house"),
   numericInput("home_price", "Home Price ($)", 500000, min = 50000, step = 10000),
+  help_text("Total purchase price of the property."),
   sliderInput("down_pct", "Down Payment (%)", 5, 50, 20, step = 1),
+  help_text(
+    "Cash you pay upfront. 20% avoids PMI. This money could be invested instead,",
+    "which is the core opportunity cost of buying."
+  ),
   sliderInput("mortgage_rate", "Mortgage Rate (%)", 2, 10, 6.5, step = 0.125),
+  help_text("Annual interest rate on your loan. Even small changes have a big impact over 30 years."),
   selectInput("loan_term", "Loan Term", choices = c(15, 20, 30), selected = 30),
+  help_text("Shorter terms mean higher monthly payments but far less total interest paid."),
   sliderInput("closing_cost_pct", "Closing Costs (%)", 0, 6, 3, step = 0.5),
+  help_text(
+    "One-time fees at purchase: appraisal, title insurance, origination fees, etc.",
+    "Typically 2\u20135% of the home price. This is money spent that you never get back."
+  ),
   sliderInput("home_appreciation", "Home Appreciation (%/yr)", -2, 10, 3, step = 0.5),
-  sliderInput("selling_cost_pct", "Selling Costs (%)", 0, 8, 5, step = 0.5)
+  help_text(
+    "How fast the home gains value each year. The US long-run average is ~3\u20134%.",
+    "This is the main driver of whether buying wins."
+  ),
+  sliderInput("selling_cost_pct", "Selling Costs (%)", 0, 8, 5, step = 0.5),
+  help_text(
+    "When you eventually sell: agent commissions (5\u20136%), transfer taxes, repairs.",
+    "Deducted from your equity to show what you'd actually pocket."
+  )
 )
 
 input_ownership <- accordion_panel(
   "Ownership Costs",
   icon = icon("wrench"),
   sliderInput("property_tax", "Property Tax (%/yr)", 0, 4, 1.2, step = 0.1),
+  help_text(
+    "Annual tax on property value, paid to your county/city.",
+    "Varies widely: ~0.3% in Hawaii, ~2.5% in New Jersey. Check your area."
+  ),
   numericInput("insurance_annual", "Insurance ($/yr)", 1800, min = 0, step = 100),
-  sliderInput("maintenance_pct", "Maintenance (% of home/yr)", 0, 3, 1, step = 0.25)
+  help_text("Homeowner's insurance. Required by your lender. Covers damage, liability, etc."),
+  sliderInput("maintenance_pct", "Maintenance (% of home/yr)", 0, 3, 1, step = 0.25),
+  help_text(
+    "Ongoing upkeep: roof, HVAC, plumbing, appliances, landscaping.",
+    "The 1% rule is a common estimate. Older homes trend higher."
+  )
 )
 
 input_rental <- accordion_panel(
   "Rental",
   icon = icon("building"),
   numericInput("monthly_rent", "Monthly Rent ($)", 2500, min = 100, step = 100),
-  sliderInput("rent_increase", "Annual Rent Increase (%)", 0, 10, 3, step = 0.5)
+  help_text("Your current or expected monthly rent for a comparable place."),
+  sliderInput("rent_increase", "Annual Rent Increase (%)", 0, 10, 3, step = 0.5),
+  help_text(
+    "How much rent goes up each year. National average is ~3\u20135%.",
+    "In hot markets it can be higher. Rent control areas may be lower."
+  )
 )
 
 input_financial <- accordion_panel(
   "Financial Assumptions",
   icon = icon("chart-line"),
   sliderInput("investment_return", "Investment Return (%/yr)", 0, 15, 7, step = 0.5),
-  sliderInput("inflation_rate", "Inflation (%/yr)", 0, 8, 2.5, step = 0.5)
+  help_text(
+    "Expected annual return if you invest in the stock market instead.",
+    "S&P 500 historical average is ~10% nominal, ~7% after inflation.",
+    "This is what your down payment and monthly savings could earn."
+  ),
+  sliderInput("inflation_rate", "Inflation (%/yr)", 0, 8, 2.5, step = 0.5),
+  help_text("General price inflation. Included for reference; the model uses nominal values.")
 )
 
 input_personal <- accordion_panel(
   "Personal",
   icon = icon("user"),
   numericInput("monthly_income", "Gross Monthly Income ($)", 12000, min = 1000, step = 500),
-  sliderInput("horizon", "Time Horizon (years)", 1, 40, 15, step = 1)
+  help_text(
+    "Pre-tax monthly income. Used to calculate your housing-to-income ratio.",
+    "Lenders typically want this under 28%. Above 36% is risky territory."
+  ),
+  sliderInput("horizon", "Time Horizon (years)", 1, 40, 15, step = 1),
+  help_text(
+    "How long you plan to stay. Buying almost never wins under 5 years",
+    "because closing + selling costs eat your equity. The longer you stay,",
+    "the more time appreciation and principal paydown have to compound."
+  )
 )
 
 ui <- page_sidebar(
@@ -390,6 +440,122 @@ ui <- page_sidebar(
     nav_panel(
       "Summary Table",
       tableOutput("summary_table")
+    ),
+    nav_panel(
+      "How It Works",
+      div(
+        class = "p-3",
+        style = "max-width: 800px;",
+        tags$h4("The Core Question"),
+        tags$p(
+          "If you have enough cash for a down payment, should you use it to buy a home,",
+          "or keep renting and invest that cash in the stock market? This tool runs both",
+          "scenarios side-by-side and tells you which one leaves you wealthier."
+        ),
+
+        tags$h4("How the Model Works"),
+        tags$p(tags$strong("Both people start with the same cash"), " \u2014 equal to the",
+          "down payment + closing costs the buyer would spend. Both people also have the",
+          "same monthly budget (whichever housing cost is higher that month)."),
+        tags$ul(
+          tags$li(
+            tags$strong("The Buyer"), " spends the cash on the down payment and closing costs.",
+            "Each month they pay mortgage principal & interest, property tax, insurance,",
+            "and maintenance. They build equity as the loan balance drops and the home",
+            "appreciates. If their monthly cost is", tags$em("less"), "than the renter's,",
+            "they invest the difference."
+          ),
+          tags$li(
+            tags$strong("The Renter"), " invests all of that upfront cash in the stock market",
+            "on day one. Each month they pay rent (+ renter's insurance). If their monthly",
+            "cost is", tags$em("less"), "than the buyer's, they invest the difference too."
+          )
+        ),
+        tags$p(
+          "At the end of your time horizon, we compare total net worth from the housing",
+          "decision: the buyer's home equity (after selling costs) + any investments, vs.",
+          "the renter's investment portfolio."
+        ),
+
+        tags$h4("Key Concepts"),
+        tags$dl(
+          tags$dt("Opportunity Cost"),
+          tags$dd(
+            "The biggest hidden cost of buying. Your down payment could be earning 7\u201310%",
+            "per year in the stock market. If your home only appreciates at 3%, you're",
+            "giving up potential returns. The model captures this by having the renter invest",
+            "the full down payment on day one."
+          ),
+          tags$dt("Home Equity"),
+          tags$dd(
+            "What you'd actually pocket if you sold today: the home's market value,",
+            "minus the remaining loan balance, minus selling costs (agent commissions,",
+            "transfer taxes, etc.). Early on, most of your mortgage payment goes to",
+            tags$em("interest"), " \u2014 you build equity slowly at first, then faster."
+          ),
+          tags$dt("Amortization"),
+          tags$dd(
+            "Your fixed monthly payment is split between interest and principal.",
+            "In month 1 of a $400K loan at 6.5%, about $2,167 goes to interest and",
+            "only $361 goes to principal. By year 20, that flips. A 15-year loan builds",
+            "equity much faster but costs more per month."
+          ),
+          tags$dt("Housing-to-Income Ratio"),
+          tags$dd(
+            "The percentage of your gross income that goes to housing. Lenders use 28%",
+            "as a guideline for mortgage approval (the 'front-end ratio'). Above 36%",
+            "is generally considered stretched. This tool shows yours so you can gut-check",
+            "affordability \u2014 not just whether buying is optimal, but whether it's",
+            tags$em("comfortable"), "."
+          ),
+          tags$dt("Breakeven Home Price"),
+          tags$dd(
+            "The maximum you could pay for a home and still beat renting over your time",
+            "horizon, with all other assumptions held constant. If the actual price is above",
+            "this, renting + investing wins."
+          ),
+          tags$dt("Breakeven Rent"),
+          tags$dd(
+            "The minimum rent that would make buying worthwhile. If your rent is below",
+            "this threshold, renting is the better deal. Useful for comparing apartments",
+            "at different price points."
+          ),
+          tags$dt("Breakeven Year"),
+          tags$dd(
+            "How many years until buying overtakes renting. If this is longer than you plan",
+            "to stay, buying doesn't make financial sense regardless of the final numbers."
+          )
+        ),
+
+        tags$h4("What This Model Does NOT Include"),
+        tags$ul(
+          tags$li("Tax benefits (mortgage interest deduction, property tax deduction, capital gains exclusion)"),
+          tags$li("PMI (private mortgage insurance) if down payment < 20%"),
+          tags$li("Rental income if you house-hack or rent out rooms"),
+          tags$li("Emotional factors: stability, freedom to renovate, stress of maintenance"),
+          tags$li("Transaction costs of investing (negligible with index funds)"),
+          tags$li("State/local income tax variations")
+        ),
+        tags$p(
+          class = "text-muted mt-3",
+          "Tax benefits tend to favor buying; PMI and emotional costs tend to favor renting.",
+          "For most people these roughly wash out, but your situation may differ."
+        ),
+
+        tags$h4("Rules of Thumb"),
+        tags$ul(
+          tags$li(tags$strong("The 5-year rule:"),
+            " Buying rarely makes sense if you'll move within 5 years.",
+            " Closing + selling costs typically eat any equity you've built."),
+          tags$li(tags$strong("Price-to-rent ratio:"),
+            " Divide annual rent into home price. Under 15 = buying favors you.",
+            " 15\u201320 = toss-up. Over 20 = renting likely wins.",
+            " (e.g., $500K home / $30K annual rent = 16.7)"),
+          tags$li(tags$strong("The 28/36 rule:"),
+            " Housing costs should be under 28% of gross income.",
+            " Total debt payments should be under 36%.")
+        )
+      )
     )
   )
 )
