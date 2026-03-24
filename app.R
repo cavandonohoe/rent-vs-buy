@@ -1,5 +1,6 @@
 library(shiny)
 library(bslib)
+library(shinyWidgets)
 library(ggplot2)
 library(scales)
 
@@ -258,7 +259,9 @@ help_text <- function(...) tags$small(class = "text-muted", ...)
 input_home <- accordion_panel(
   "Home Purchase",
   icon = icon("house"),
-  numericInput("home_price", "Home Price ($)", 500000, min = 50000, step = 10000),
+  autonumericInput("home_price", "Home Price ($)", 1000000,
+    currencySymbol = "$", currencySymbolPlacement = "p",
+    decimalPlaces = 0, minimumValue = 50000, modifyValueOnWheel = FALSE),
   help_text("Total purchase price of the property."),
   sliderInput("down_pct", "Down Payment (%)", 5, 50, 20, step = 1),
   help_text(
@@ -301,7 +304,9 @@ input_ownership <- accordion_panel(
     "regardless of market appreciation. Set to match home appreciation to disable",
     "the cap (i.e., tax on full market value, as in most other states)."
   ),
-  numericInput("insurance_annual", "Insurance ($/yr)", 1800, min = 0, step = 100),
+  autonumericInput("insurance_annual", "Insurance ($/yr)", 1800,
+    currencySymbol = "$", currencySymbolPlacement = "p",
+    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE),
   help_text("Homeowner's insurance. Required by your lender. Covers damage, liability, etc."),
   sliderInput("maintenance_pct", "Maintenance (% of home/yr)", 0, 3, 1, step = 0.25),
   help_text(
@@ -313,7 +318,9 @@ input_ownership <- accordion_panel(
 input_rental <- accordion_panel(
   "Rental",
   icon = icon("building"),
-  numericInput("monthly_rent", "Monthly Rent ($)", 3000, min = 100, step = 100),
+  autonumericInput("monthly_rent", "Monthly Rent ($)", 3000,
+    currencySymbol = "$", currencySymbolPlacement = "p",
+    decimalPlaces = 0, minimumValue = 100, modifyValueOnWheel = FALSE),
   help_text("Your current or expected monthly rent for a comparable place."),
   sliderInput("rent_increase", "Annual Rent Increase (%)", 0, 10, 2, step = 0.5),
   help_text(
@@ -340,7 +347,9 @@ input_financial <- accordion_panel(
 input_personal <- accordion_panel(
   "Personal",
   icon = icon("user"),
-  numericInput("monthly_income", "Gross Monthly Income ($)", 12000, min = 1000, step = 500),
+  autonumericInput("monthly_income", "Gross Monthly Income ($)", 12000,
+    currencySymbol = "$", currencySymbolPlacement = "p",
+    decimalPlaces = 0, minimumValue = 1000, modifyValueOnWheel = FALSE),
   help_text(
     "Pre-tax monthly income. Used to calculate your housing-to-income ratio.",
     "Lenders typically want this under 28%. Above 36% is risky territory."
