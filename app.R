@@ -147,6 +147,100 @@ run_simulation <- function(
   )
 }
 
+final_advantage <- function(home_price, ...) {
+  d <- run_simulation(home_price = home_price, ...)
+  tail(d, 1)$buy_net_worth - tail(d, 1)$rent_net_worth
+}
+
+find_breakeven_price <- function(
+    down_pct, mortgage_rate, loan_term,
+    closing_cost_pct, home_appreciation,
+    property_tax_rate, insurance_annual, maintenance_pct,
+    selling_cost_pct,
+    monthly_rent, rent_increase,
+    investment_return, inflation_rate,
+    monthly_income, horizon_years,
+    tol = 500
+) {
+  shared <- list(
+    down_pct = down_pct, mortgage_rate = mortgage_rate,
+    loan_term = loan_term, closing_cost_pct = closing_cost_pct,
+    home_appreciation = home_appreciation,
+    property_tax_rate = property_tax_rate,
+    insurance_annual = insurance_annual, maintenance_pct = maintenance_pct,
+    selling_cost_pct = selling_cost_pct, monthly_rent = monthly_rent,
+    rent_increase = rent_increase, investment_return = investment_return,
+    inflation_rate = inflation_rate, monthly_income = monthly_income,
+    horizon_years = horizon_years
+  )
+  f <- function(p) do.call(final_advantage, c(list(home_price = p), shared))
+
+  lo <- 10000
+  hi <- 5000000
+  f_lo <- f(lo)
+  f_hi <- f(hi)
+
+  if (f_lo < 0) return(NA_real_)
+  if (f_hi > 0) return(Inf)
+
+  while ((hi - lo) > tol) {
+    mid <- (lo + hi) / 2
+    if (f(mid) > 0) lo <- mid else hi <- mid
+  }
+  (lo + hi) / 2
+}
+
+find_breakeven_rent <- function(
+    home_price, down_pct, mortgage_rate, loan_term,
+    closing_cost_pct, home_appreciation,
+    property_tax_rate, insurance_annual, maintenance_pct,
+    selling_cost_pct,
+    rent_increase,
+    investment_return, inflation_rate,
+    monthly_income, horizon_years,
+    tol = 10
+) {
+  shared <- list(
+    home_price = home_price, down_pct = down_pct,
+    mortgage_rate = mortgage_rate, loan_term = loan_term,
+    closing_cost_pct = closing_cost_pct,
+    home_appreciation = home_appreciation,
+    property_tax_rate = property_tax_rate,
+    insurance_annual = insurance_annual, maintenance_pct = maintenance_pct,
+    selling_cost_pct = selling_cost_pct, rent_increase = rent_increase,
+    investment_return = investment_return, inflation_rate = inflation_rate,
+    monthly_income = monthly_income, horizon_years = horizon_years
+  )
+  f <- function(r) do.call(final_advantage, c(list(monthly_rent = r), shared))
+
+  lo <- 100
+  hi <- 20000
+  f_lo <- f(lo)
+  f_hi <- f(hi)
+
+  if (f_hi > 0) return(Inf)
+  if (f_lo < 0) return(NA_real_)
+
+  while ((hi - lo) > tol) {
+    mid <- (lo + hi) / 2
+    if (f(mid) > 0) lo <- mid else hi <- mid
+  }
+  (lo + hi) / 2
+}
+
+find_breakeven_year <- function(sim_data) {
+  d <- sim_data
+  advantage <- d$buy_net_worth - d$rent_net_worth
+  crossings <- which(diff(sign(advantage)) != 0)
+  if (length(crossings) == 0) return(NA_real_)
+  # Linear interpolation at first crossing
+  i <- crossings[1]
+  a1 <- advantage[i]
+  a2 <- advantage[i + 1]
+  frac <- a1 / (a1 - a2)
+  (d$year[i] + frac * (d$year[i + 1] - d$year[i]))
+}
+
 # -- UI ------------------------------------------------------------------------
 
 input_home <- accordion_panel(
@@ -251,6 +345,30 @@ ui <- page_sidebar(
       theme = "light"
     )
   ),
+  layout_columns(
+    col_widths = c(4, 4, 4),
+    value_box(
+      title = "Breakeven Home Price",
+      value = textOutput("breakeven_price"),
+      showcase = icon("house-circle-check"),
+      theme = "warning",
+      p("Max price where buying still wins")
+    ),
+    value_box(
+      title = "Breakeven Rent",
+      value = textOutput("breakeven_rent"),
+      showcase = icon("arrow-up-right-dots"),
+      theme = "warning",
+      p("Min rent where buying wins")
+    ),
+    value_box(
+      title = "Breakeven Year",
+      value = textOutput("breakeven_year"),
+      showcase = icon("calendar-check"),
+      theme = "warning",
+      p("When buying overtakes renting")
+    )
+  ),
   navset_card_tab(
     full_screen = TRUE,
     nav_panel(
@@ -264,6 +382,10 @@ ui <- page_sidebar(
     nav_panel(
       "Equity Breakdown",
       plotOutput("equity_plot", height = "450px")
+    ),
+    nav_panel(
+      "Breakeven Analysis",
+      plotOutput("breakeven_plot", height = "450px")
     ),
     nav_panel(
       "Summary Table",
@@ -340,6 +462,64 @@ server <- function(input, output, session) {
     paste0(sprintf("%.0f%%", ratio), " of income")
   })
 
+  # Breakeven computations
+  shared_params <- reactive({
+    list(
+      down_pct = input$down_pct, mortgage_rate = input$mortgage_rate,
+      loan_term = as.integer(input$loan_term),
+      closing_cost_pct = input$closing_cost_pct,
+      home_appreciation = input$home_appreciation,
+      property_tax_rate = input$property_tax,
+      insurance_annual = input$insurance_annual,
+      maintenance_pct = input$maintenance_pct,
+      selling_cost_pct = input$selling_cost_pct,
+      rent_increase = input$rent_increase,
+      investment_return = input$investment_return,
+      inflation_rate = input$inflation_rate,
+      monthly_income = input$monthly_income,
+      horizon_years = input$horizon
+    )
+  })
+
+  be_price <- reactive({
+    p <- shared_params()
+    p$monthly_rent <- input$monthly_rent
+    do.call(find_breakeven_price, p)
+  })
+
+  be_rent <- reactive({
+    p <- shared_params()
+    p$home_price <- input$home_price
+    do.call(find_breakeven_rent, p)
+  })
+
+  be_year <- reactive(find_breakeven_year(sim()))
+
+  output$breakeven_price <- renderText({
+    v <- be_price()
+    if (is.na(v)) "Rent always wins"
+    else if (is.infinite(v)) "Buy always wins"
+    else dollar(v, accuracy = 1000)
+  })
+
+  output$breakeven_rent <- renderText({
+    v <- be_rent()
+    if (is.na(v)) "Buy always wins"
+    else if (is.infinite(v)) "Rent always wins"
+    else paste0(dollar(v, accuracy = 10), "/mo")
+  })
+
+  output$breakeven_year <- renderText({
+    v <- be_year()
+    if (is.na(v)) {
+      f <- final()
+      if (f$buy_net_worth >= f$rent_net_worth) "Buy leads from start"
+      else "Never (in horizon)"
+    } else {
+      sprintf("Year %.1f", v)
+    }
+  })
+
   # Net worth plot
   output$net_worth_plot <- renderPlot({
     d <- sim()
@@ -391,6 +571,53 @@ server <- function(input, output, session) {
       labs(x = "Years", y = NULL, colour = NULL) +
       theme_minimal(base_size = 14, base_family = "Inter") +
       theme(legend.position = "top")
+  })
+
+  # Breakeven sensitivity plot
+  output$breakeven_plot <- renderPlot({
+    p <- shared_params()
+    p$monthly_rent <- input$monthly_rent
+    base_price <- input$home_price
+    prices <- seq(
+      max(50000, base_price * 0.5),
+      base_price * 2,
+      length.out = 40
+    )
+    advantages <- vapply(prices, function(hp) {
+      do.call(final_advantage, c(list(home_price = hp), p))
+    }, numeric(1))
+
+    plot_df <- data.frame(home_price = prices, advantage = advantages)
+
+    ggplot(plot_df, aes(x = home_price, y = advantage)) +
+      geom_line(colour = "#2c3e50", linewidth = 1.2) +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "#e74c3c", linewidth = 0.8) +
+      geom_vline(
+        xintercept = base_price, linetype = "dotted",
+        colour = "#7f8c8d", linewidth = 0.8
+      ) +
+      annotate(
+        "text", x = base_price, y = max(advantages) * 0.9,
+        label = paste0("Your price: ", dollar(base_price)),
+        hjust = -0.1, size = 4, colour = "#7f8c8d"
+      ) +
+      geom_area(
+        data = plot_df[plot_df$advantage > 0, ],
+        aes(y = advantage), fill = "#27ae60", alpha = 0.15
+      ) +
+      geom_area(
+        data = plot_df[plot_df$advantage < 0, ],
+        aes(y = advantage), fill = "#e74c3c", alpha = 0.15
+      ) +
+      scale_x_continuous(labels = label_dollar(scale_cut = cut_short_scale())) +
+      scale_y_continuous(labels = label_dollar(scale_cut = cut_short_scale())) +
+      labs(
+        x = "Home Price",
+        y = paste0("Buy Advantage at Year ", input$horizon),
+        caption = "Green = buying wins, Red = renting wins. Dotted line = your current home price."
+      ) +
+      theme_minimal(base_size = 14, base_family = "Inter") +
+      theme(plot.caption = element_text(size = 10, colour = "grey50", hjust = 0))
   })
 
   # Summary table at key milestones
