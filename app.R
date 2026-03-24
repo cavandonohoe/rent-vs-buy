@@ -470,6 +470,10 @@ ui <- page_sidebar(
       tableOutput("summary_table")
     ),
     nav_panel(
+      "Amortization",
+      tableOutput("amort_table")
+    ),
+    nav_panel(
       "How It Works",
       div(
         class = "p-3",
@@ -828,6 +832,34 @@ server <- function(input, output, session) {
       theme_minimal(base_size = 14, base_family = "Inter") +
       theme(plot.caption = element_text(size = 10, colour = "grey50", hjust = 0))
   })
+
+  # Amortization table (annual summary)
+  output$amort_table <- renderTable({
+    dp <- input$home_price * input$down_pct / 100
+    loan <- input$home_price - dp
+    term <- as.integer(input$loan_term)
+    a <- compute_amortization(loan, input$mortgage_rate, term)
+    a$cum_interest <- cumsum(a$interest)
+    a$cum_principal <- cumsum(a$principal)
+
+    yearly <- a[a$month %% 12 == 0, ]
+    data.frame(
+      Year = yearly$month / 12,
+      Payment = dollar(yearly$payment * 12, accuracy = 1),
+      `Interest (Year)` = dollar(
+        yearly$cum_interest - c(0, yearly$cum_interest[-nrow(yearly)]),
+        accuracy = 1
+      ),
+      `Principal (Year)` = dollar(
+        yearly$cum_principal - c(0, yearly$cum_principal[-nrow(yearly)]),
+        accuracy = 1
+      ),
+      `Total Interest Paid` = dollar(yearly$cum_interest, accuracy = 1),
+      `Total Principal Paid` = dollar(yearly$cum_principal, accuracy = 1),
+      `Remaining Balance` = dollar(yearly$balance, accuracy = 1),
+      check.names = FALSE
+    )
+  }, striped = TRUE, hover = TRUE, spacing = "s", align = "lrrrrrr")
 
   # Summary table at key milestones
   output$summary_table <- renderTable({
