@@ -261,7 +261,9 @@ input_home <- accordion_panel(
   icon = icon("house"),
   autonumericInput("home_price", "Home Price ($)", 1000000,
     currencySymbol = "$", currencySymbolPlacement = "p",
-    decimalPlaces = 0, minimumValue = 50000, modifyValueOnWheel = FALSE),
+    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE,
+    selectOnFocus = TRUE, emptyInputBehavior = "null",
+    overrideMinMaxLimits = "ignore"),
   help_text("Total purchase price of the property."),
   sliderInput("down_pct", "Down Payment (%)", 5, 50, 20, step = 1),
   help_text(
@@ -306,7 +308,9 @@ input_ownership <- accordion_panel(
   ),
   autonumericInput("insurance_annual", "Insurance ($/yr)", 1800,
     currencySymbol = "$", currencySymbolPlacement = "p",
-    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE),
+    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE,
+    selectOnFocus = TRUE, emptyInputBehavior = "null",
+    overrideMinMaxLimits = "ignore"),
   help_text("Homeowner's insurance. Required by your lender. Covers damage, liability, etc."),
   sliderInput("maintenance_pct", "Maintenance (% of home/yr)", 0, 3, 1, step = 0.25),
   help_text(
@@ -320,7 +324,9 @@ input_rental <- accordion_panel(
   icon = icon("building"),
   autonumericInput("monthly_rent", "Monthly Rent ($)", 3000,
     currencySymbol = "$", currencySymbolPlacement = "p",
-    decimalPlaces = 0, minimumValue = 100, modifyValueOnWheel = FALSE),
+    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE,
+    selectOnFocus = TRUE, emptyInputBehavior = "null",
+    overrideMinMaxLimits = "ignore"),
   help_text("Your current or expected monthly rent for a comparable place."),
   sliderInput("rent_increase", "Annual Rent Increase (%)", 0, 10, 2, step = 0.5),
   help_text(
@@ -349,7 +355,9 @@ input_personal <- accordion_panel(
   icon = icon("user"),
   autonumericInput("monthly_income", "Gross Monthly Income ($)", 12000,
     currencySymbol = "$", currencySymbolPlacement = "p",
-    decimalPlaces = 0, minimumValue = 1000, modifyValueOnWheel = FALSE),
+    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE,
+    selectOnFocus = TRUE, emptyInputBehavior = "null",
+    overrideMinMaxLimits = "ignore"),
   help_text(
     "Pre-tax monthly income. Used to calculate your housing-to-income ratio.",
     "Lenders typically want this under 28%. Above 36% is risky territory."
@@ -609,9 +617,13 @@ ui <- page_sidebar(
 
 server <- function(input, output, session) {
 
+  safe_val <- function(x, default = 0) {
+    if (is.null(x) || length(x) == 0 || is.na(x)) default else x
+  }
+
   sim <- reactive({
     run_simulation(
-      home_price = input$home_price,
+      home_price = safe_val(input$home_price, 1000000),
       down_pct = input$down_pct,
       mortgage_rate = input$mortgage_rate,
       loan_term = as.integer(input$loan_term),
@@ -619,14 +631,14 @@ server <- function(input, output, session) {
       home_appreciation = input$home_appreciation,
       property_tax_rate = input$property_tax,
       prop_tax_cap = input$prop_tax_cap,
-      insurance_annual = input$insurance_annual,
+      insurance_annual = safe_val(input$insurance_annual, 1800),
       maintenance_pct = input$maintenance_pct,
       selling_cost_pct = input$selling_cost_pct,
-      monthly_rent = input$monthly_rent,
+      monthly_rent = safe_val(input$monthly_rent, 3000),
       rent_increase = input$rent_increase,
       investment_return = input$investment_return,
       inflation_rate = input$inflation_rate,
-      monthly_income = input$monthly_income,
+      monthly_income = safe_val(input$monthly_income, 12000),
       horizon_years = input$horizon
     )
   })
@@ -637,8 +649,9 @@ server <- function(input, output, session) {
   })
 
   mortgage_pmt <- reactive({
-    dp <- input$home_price * input$down_pct / 100
-    loan <- input$home_price - dp
+    hp <- safe_val(input$home_price, 1000000)
+    dp <- hp * input$down_pct / 100
+    loan <- hp - dp
     r <- input$mortgage_rate / 100 / 12
     n <- as.integer(input$loan_term) * 12
     if (r == 0) return(loan / n)
@@ -670,7 +683,7 @@ server <- function(input, output, session) {
   output$affordability <- renderText({
     d <- sim()
     buy_cost <- d$buy_monthly_cost[2]
-    ratio <- buy_cost / input$monthly_income * 100
+    ratio <- buy_cost / safe_val(input$monthly_income, 12000) * 100
     paste0(sprintf("%.0f%%", ratio), " of income")
   })
 
@@ -683,26 +696,26 @@ server <- function(input, output, session) {
       home_appreciation = input$home_appreciation,
       property_tax_rate = input$property_tax,
       prop_tax_cap = input$prop_tax_cap,
-      insurance_annual = input$insurance_annual,
+      insurance_annual = safe_val(input$insurance_annual, 1800),
       maintenance_pct = input$maintenance_pct,
       selling_cost_pct = input$selling_cost_pct,
       rent_increase = input$rent_increase,
       investment_return = input$investment_return,
       inflation_rate = input$inflation_rate,
-      monthly_income = input$monthly_income,
+      monthly_income = safe_val(input$monthly_income, 12000),
       horizon_years = input$horizon
     )
   })
 
   be_price <- reactive({
     p <- shared_params()
-    p$monthly_rent <- input$monthly_rent
+    p$monthly_rent <- safe_val(input$monthly_rent, 3000)
     do.call(find_breakeven_price, p)
   })
 
   be_rent <- reactive({
     p <- shared_params()
-    p$home_price <- input$home_price
+    p$home_price <- safe_val(input$home_price, 1000000)
     do.call(find_breakeven_rent, p)
   })
 
@@ -789,8 +802,8 @@ server <- function(input, output, session) {
   # Breakeven sensitivity plot
   output$breakeven_plot <- renderPlot({
     p <- shared_params()
-    p$monthly_rent <- input$monthly_rent
-    base_price <- input$home_price
+    p$monthly_rent <- safe_val(input$monthly_rent, 3000)
+    base_price <- safe_val(input$home_price, 1000000)
     prices <- seq(
       max(50000, base_price * 0.5),
       base_price * 2,
@@ -835,8 +848,9 @@ server <- function(input, output, session) {
 
   # Amortization table with rent vs buy comparison
   output$amort_table <- renderTable({
-    dp <- input$home_price * input$down_pct / 100
-    loan <- input$home_price - dp
+    hp <- safe_val(input$home_price, 1000000)
+    dp <- hp * input$down_pct / 100
+    loan <- hp - dp
     term <- as.integer(input$loan_term)
     a <- compute_amortization(loan, input$mortgage_rate, term)
     a$cum_interest <- cumsum(a$interest)
