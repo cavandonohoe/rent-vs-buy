@@ -49,7 +49,10 @@ run_simulation <- function(
     selling_cost_pct,
     monthly_rent, rent_increase,
     investment_return, inflation_rate,
-    monthly_income, horizon_years
+    monthly_income, horizon_years,
+    roommate_rent = 0, roommate_occupancy = 100,
+    photoshoot_revenue = 0,
+    revenue_growth = 0
 ) {
   months <- horizon_years * 12
 
@@ -69,6 +72,7 @@ run_simulation <- function(
   buy_net_worth <- numeric(months + 1)
   rent_net_worth <- numeric(months + 1)
   buy_monthly_cost <- numeric(months)
+  buy_monthly_revenue <- numeric(months)
   rent_monthly_cost <- numeric(months)
   home_values <- numeric(months + 1)
   assessed_values <- numeric(months + 1)
@@ -109,8 +113,18 @@ run_simulation <- function(
     ins_monthly <- insurance_annual / 12
     maint_monthly <- hv * maintenance_pct / 100 / 12
 
-    buy_cost <- mortgage_pmt + prop_tax_monthly + ins_monthly + maint_monthly
+    buy_gross_cost <- mortgage_pmt + prop_tax_monthly + ins_monthly + maint_monthly
+
+    # Rental revenue the buyer collects from the property (roommate + photoshoots).
+    # Grows annually at revenue_growth and is netted against ownership costs.
+    revenue_multiplier <- (1 + revenue_growth / 100)^(year - 1)
+    roommate_income <- roommate_rent * (roommate_occupancy / 100) * revenue_multiplier
+    shoot_income <- photoshoot_revenue * revenue_multiplier
+    monthly_revenue <- roommate_income + shoot_income
+
+    buy_cost <- buy_gross_cost - monthly_revenue
     buy_monthly_cost[t] <- buy_cost
+    buy_monthly_revenue[t] <- monthly_revenue
 
     current_rent <- monthly_rent * (1 + rent_increase / 100)^(year - 1)
     renter_insurance <- 20
@@ -152,6 +166,7 @@ run_simulation <- function(
     rent_portfolio = rent_portfolio,
     rent_net_worth = rent_net_worth,
     buy_monthly_cost = c(NA, buy_monthly_cost),
+    buy_monthly_revenue = c(NA, buy_monthly_revenue),
     rent_monthly_cost = c(NA, rent_monthly_cost)
   )
 }
@@ -169,6 +184,8 @@ find_breakeven_price <- function(
     monthly_rent, rent_increase,
     investment_return, inflation_rate,
     monthly_income, horizon_years,
+    roommate_rent = 0, roommate_occupancy = 100,
+    photoshoot_revenue = 0, revenue_growth = 0,
     tol = 500
 ) {
   shared <- list(
@@ -181,7 +198,9 @@ find_breakeven_price <- function(
     selling_cost_pct = selling_cost_pct, monthly_rent = monthly_rent,
     rent_increase = rent_increase, investment_return = investment_return,
     inflation_rate = inflation_rate, monthly_income = monthly_income,
-    horizon_years = horizon_years
+    horizon_years = horizon_years,
+    roommate_rent = roommate_rent, roommate_occupancy = roommate_occupancy,
+    photoshoot_revenue = photoshoot_revenue, revenue_growth = revenue_growth
   )
   f <- function(p) do.call(final_advantage, c(list(home_price = p), shared))
 
@@ -208,6 +227,8 @@ find_breakeven_rent <- function(
     rent_increase,
     investment_return, inflation_rate,
     monthly_income, horizon_years,
+    roommate_rent = 0, roommate_occupancy = 100,
+    photoshoot_revenue = 0, revenue_growth = 0,
     tol = 10
 ) {
   shared <- list(
@@ -220,7 +241,9 @@ find_breakeven_rent <- function(
     insurance_annual = insurance_annual, maintenance_pct = maintenance_pct,
     selling_cost_pct = selling_cost_pct, rent_increase = rent_increase,
     investment_return = investment_return, inflation_rate = inflation_rate,
-    monthly_income = monthly_income, horizon_years = horizon_years
+    monthly_income = monthly_income, horizon_years = horizon_years,
+    roommate_rent = roommate_rent, roommate_occupancy = roommate_occupancy,
+    photoshoot_revenue = photoshoot_revenue, revenue_growth = revenue_growth
   )
   f <- function(r) do.call(final_advantage, c(list(monthly_rent = r), shared))
 
@@ -337,6 +360,42 @@ input_rental <- accordion_panel(
   )
 )
 
+input_home_revenue <- accordion_panel(
+  "Home Revenue (Buyer)",
+  icon = icon("sack-dollar"),
+  help_text(
+    "Monthly income the buyer collects from the property. This reduces the buyer's",
+    "effective monthly housing cost \u2014 the renter cannot sublet a house they don't own,",
+    "so this only applies to the Buy scenario. Modeled as pre-tax nominal revenue."
+  ),
+  autonumericInput("roommate_rent", "Roommate Rent ($/mo)", 0,
+    currencySymbol = "$", currencySymbolPlacement = "p",
+    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE,
+    selectOnFocus = TRUE, emptyInputBehavior = "null",
+    overrideMinMaxLimits = "ignore"),
+  help_text(
+    "Rent collected from a roommate if you rent out a room. Set to 0 if you won't house-hack."
+  ),
+  sliderInput("roommate_occupancy", "Roommate Occupancy (%)", 0, 100, 90, step = 5),
+  help_text(
+    "Fraction of months the room is occupied. 90\u2013100% is typical for a long-term roommate;",
+    "lower it to model turnover gaps or short-term rental vacancy."
+  ),
+  autonumericInput("photoshoot_revenue", "Photoshoot Revenue ($/mo avg)", 0,
+    currencySymbol = "$", currencySymbolPlacement = "p",
+    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE,
+    selectOnFocus = TRUE, emptyInputBehavior = "null",
+    overrideMinMaxLimits = "ignore"),
+  help_text(
+    "Average monthly revenue from renting the space for photo/film shoots.",
+    "Use a realistic average: e.g., 2 shoots/mo \u00d7 $800/day = $1,600/mo."
+  ),
+  sliderInput("revenue_growth", "Revenue Growth (%/yr)", 0, 10, 2, step = 0.5),
+  help_text(
+    "How fast rental/shoot revenue grows each year. Usually tracks local rent inflation."
+  )
+)
+
 input_financial <- accordion_panel(
   "Financial Assumptions",
   icon = icon("chart-line"),
@@ -377,6 +436,17 @@ ui <- page_sidebar(
     base_font = font_google("Inter"),
     "navbar-bg" = "#2c3e50"
   ),
+  tags$head(tags$style(HTML("
+    .bslib-value-box .value-box-value {
+      font-size: clamp(1rem, 2.5vw, 1.75rem) !important;
+      white-space: nowrap !important;
+      overflow: visible !important;
+    }
+    .bslib-value-box .value-box-title {
+      white-space: nowrap !important;
+      overflow: visible !important;
+    }
+  "))),
   sidebar = sidebar(
     width = 360,
     accordion(
@@ -384,6 +454,7 @@ ui <- page_sidebar(
       input_home,
       input_ownership,
       input_rental,
+      input_home_revenue,
       input_financial,
       input_personal
     )
@@ -391,38 +462,42 @@ ui <- page_sidebar(
   layout_columns(
     col_widths = c(4, 4, 4),
     value_box(
-      title = "Verdict",
+      title = textOutput("verdict_title"),
       value = textOutput("verdict_text"),
       showcase = icon("scale-balanced"),
       theme = "primary",
-      full_screen = FALSE
+      full_screen = FALSE,
+      p(textOutput("verdict_detail"))
     ),
     value_box(
-      title = "Buy Net Worth",
+      title = textOutput("buy_nw_title"),
       value = textOutput("buy_final_nw"),
       showcase = icon("house"),
-      theme = "success"
+      theme = "success",
+      p("Home equity (after selling costs) + invested savings")
     ),
     value_box(
-      title = "Rent Net Worth",
+      title = textOutput("rent_nw_title"),
       value = textOutput("rent_final_nw"),
       showcase = icon("building"),
-      theme = "info"
+      theme = "info",
+      p("Down payment + monthly savings invested at market return")
     )
   ),
   layout_columns(
     col_widths = c(4, 4, 4),
     value_box(
-      title = "Monthly Mortgage P&I",
+      title = "Monthly Mortgage Payment",
       value = textOutput("mortgage_payment"),
       showcase = icon("money-bill"),
       theme = "light"
     ),
     value_box(
-      title = "Total Buy Cost (Month 1)",
+      title = "Net Buy Cost (Month 1)",
       value = textOutput("buy_cost_m1"),
       showcase = icon("receipt"),
-      theme = "light"
+      theme = "light",
+      p(textOutput("buy_cost_m1_detail"))
     ),
     value_box(
       title = "Housing-to-Income Ratio",
@@ -438,21 +513,21 @@ ui <- page_sidebar(
       value = textOutput("breakeven_price"),
       showcase = icon("house-circle-check"),
       theme = "warning",
-      p("Max price where buying still wins")
+      p(textOutput("breakeven_price_note"))
     ),
     value_box(
       title = "Breakeven Rent",
       value = textOutput("breakeven_rent"),
       showcase = icon("arrow-up-right-dots"),
       theme = "warning",
-      p("Min rent where buying wins")
+      p(textOutput("breakeven_rent_note"))
     ),
     value_box(
       title = "Breakeven Year",
       value = textOutput("breakeven_year"),
       showcase = icon("calendar-check"),
       theme = "warning",
-      p("When buying overtakes renting")
+      p(textOutput("breakeven_year_note"))
     )
   ),
   navset_card_tab(
@@ -570,9 +645,9 @@ ui <- page_sidebar(
         tags$h4("What This Model Does NOT Include"),
         tags$ul(
           tags$li("Tax benefits (mortgage interest deduction, property tax deduction, capital gains exclusion)"),
+          tags$li("Taxes on rental / photoshoot revenue (model is pre-tax)"),
           tags$li("PMI (private mortgage insurance) if down payment < 20%"),
-          tags$li("Rental income if you house-hack or rent out rooms"),
-          tags$li("Emotional factors: stability, freedom to renovate, stress of maintenance"),
+          tags$li("Emotional factors: stability, freedom to renovate, stress of maintenance, privacy cost of a roommate"),
           tags$li("Transaction costs of investing (negligible with index funds)"),
           tags$li("State/local income tax variations")
         ),
@@ -580,6 +655,28 @@ ui <- page_sidebar(
           class = "text-muted mt-3",
           "Tax benefits tend to favor buying; PMI and emotional costs tend to favor renting.",
           "For most people these roughly wash out, but your situation may differ."
+        ),
+
+        tags$h4("Home Revenue (House-hacking)"),
+        tags$p(
+          "If you rent a room to a roommate or use the property for photoshoots, that",
+          "revenue reduces your effective monthly housing cost. This applies only to the",
+          tags$em("Buy"), "scenario \u2014 a renter generally can't sublet or commercially",
+          "lease a home they don't own."
+        ),
+        tags$p(
+          "The model treats roommate rent and photoshoot revenue as pre-tax nominal income",
+          "that grows each year at the Revenue Growth rate. Roommate rent is scaled by the",
+          "Occupancy % to account for vacancy between tenants. The net buy cost",
+          "(gross ownership costs \u2212 revenue) is what gets compared to rent in the",
+          "cash-flow matching logic; if the net buy cost drops below rent, the buyer",
+          "invests the surplus each month."
+        ),
+        tags$p(
+          class = "text-muted",
+          "Note: rental income is taxable, but the model is pre-tax throughout.",
+          "Depreciation, Schedule E deductions, and the ~14-day rule for short-term",
+          "rentals can materially change after-tax economics \u2014 talk to a CPA."
         ),
 
         tags$h4("California / Prop 13 Note"),
@@ -639,7 +736,11 @@ server <- function(input, output, session) {
       investment_return = input$investment_return,
       inflation_rate = input$inflation_rate,
       monthly_income = safe_val(input$monthly_income, 12000),
-      horizon_years = input$horizon
+      horizon_years = input$horizon,
+      roommate_rent = safe_val(input$roommate_rent, 0),
+      roommate_occupancy = safe_val(input$roommate_occupancy, 100),
+      photoshoot_revenue = safe_val(input$photoshoot_revenue, 0),
+      revenue_growth = safe_val(input$revenue_growth, 0)
     )
   })
 
@@ -659,16 +760,35 @@ server <- function(input, output, session) {
   })
 
   # Value boxes
+  output$verdict_title <- renderText({
+    paste0(input$horizon, "-Year Verdict")
+  })
+
   output$verdict_text <- renderText({
     f <- final()
     diff <- f$buy_net_worth - f$rent_net_worth
     if (diff > 0) {
-      paste0("Buy wins by ", dollar(diff, accuracy = 1))
+      paste0("Buy +", dollar(diff, accuracy = 1))
     } else if (diff < 0) {
-      paste0("Rent wins by ", dollar(abs(diff), accuracy = 1))
+      paste0("Rent +", dollar(abs(diff), accuracy = 1))
     } else {
       "Dead even"
     }
+  })
+
+  output$verdict_detail <- renderText({
+    f <- final()
+    diff <- f$buy_net_worth - f$rent_net_worth
+    winner <- if (diff >= 0) "Buying" else "Renting"
+    paste0(winner, " wins by ", dollar(abs(diff), accuracy = 1))
+  })
+
+  output$buy_nw_title <- renderText({
+    paste0("Buy (Yr ", input$horizon, ")")
+  })
+
+  output$rent_nw_title <- renderText({
+    paste0("Rent (Yr ", input$horizon, ")")
   })
 
   output$buy_final_nw <- renderText(dollar(final()$buy_net_worth, accuracy = 1))
@@ -678,6 +798,20 @@ server <- function(input, output, session) {
   output$buy_cost_m1 <- renderText({
     d <- sim()
     dollar(d$buy_monthly_cost[2], accuracy = 1)
+  })
+
+  output$buy_cost_m1_detail <- renderText({
+    d <- sim()
+    rev <- d$buy_monthly_revenue[2]
+    if (is.na(rev) || rev <= 0) {
+      "Mortgage + taxes + insurance + maintenance"
+    } else {
+      gross <- d$buy_monthly_cost[2] + rev
+      paste0(
+        "Gross ", dollar(gross, accuracy = 1),
+        " \u2212 revenue ", dollar(rev, accuracy = 1)
+      )
+    }
   })
 
   output$affordability <- renderText({
@@ -703,7 +837,11 @@ server <- function(input, output, session) {
       investment_return = input$investment_return,
       inflation_rate = input$inflation_rate,
       monthly_income = safe_val(input$monthly_income, 12000),
-      horizon_years = input$horizon
+      horizon_years = input$horizon,
+      roommate_rent = safe_val(input$roommate_rent, 0),
+      roommate_occupancy = safe_val(input$roommate_occupancy, 100),
+      photoshoot_revenue = safe_val(input$photoshoot_revenue, 0),
+      revenue_growth = safe_val(input$revenue_growth, 0)
     )
   })
 
@@ -723,26 +861,51 @@ server <- function(input, output, session) {
 
   output$breakeven_price <- renderText({
     v <- be_price()
-    if (is.na(v)) "Rent always wins"
-    else if (is.infinite(v)) "Buy always wins"
+    if (is.na(v)) "N/A"
+    else if (is.infinite(v)) "Any"
     else dollar(v, accuracy = 1000)
+  })
+
+  output$breakeven_price_note <- renderText({
+    v <- be_price()
+    if (is.na(v)) "Renting wins at any price"
+    else if (is.infinite(v)) "Buying wins at any price"
+    else "Max price where buying still wins"
   })
 
   output$breakeven_rent <- renderText({
     v <- be_rent()
-    if (is.na(v)) "Buy always wins"
-    else if (is.infinite(v)) "Rent always wins"
+    if (is.na(v)) "N/A"
+    else if (is.infinite(v)) "Any"
     else paste0(dollar(v, accuracy = 10), "/mo")
+  })
+
+  output$breakeven_rent_note <- renderText({
+    v <- be_rent()
+    if (is.na(v)) "Buying wins at any rent"
+    else if (is.infinite(v)) "Renting wins at any rent"
+    else "Min rent where buying wins"
   })
 
   output$breakeven_year <- renderText({
     v <- be_year()
     if (is.na(v)) {
       f <- final()
-      if (f$buy_net_worth >= f$rent_net_worth) "Buy leads from start"
-      else "Never (in horizon)"
+      if (f$buy_net_worth >= f$rent_net_worth) "Day 1"
+      else "Never"
     } else {
       sprintf("Year %.1f", v)
+    }
+  })
+
+  output$breakeven_year_note <- renderText({
+    v <- be_year()
+    if (is.na(v)) {
+      f <- final()
+      if (f$buy_net_worth >= f$rent_net_worth) "Buying leads from the start"
+      else paste0("Buying never catches up within ", input$horizon, " years")
+    } else {
+      "When buying overtakes renting"
     }
   })
 
@@ -770,11 +933,35 @@ server <- function(input, output, session) {
   # Monthly cost plot
   output$monthly_cost_plot <- renderPlot({
     d <- sim()[-1, ]
-    ggplot(d, aes(x = year)) +
-      geom_line(aes(y = buy_monthly_cost, colour = "Buy"), linewidth = 1) +
-      geom_line(aes(y = rent_monthly_cost, colour = "Rent"), linewidth = 1) +
+    has_revenue <- any(d$buy_monthly_revenue > 0, na.rm = TRUE)
+    buy_gross <- d$buy_monthly_cost + d$buy_monthly_revenue
+
+    p <- ggplot(d, aes(x = year)) +
+      geom_line(aes(y = buy_monthly_cost, colour = "Buy (net)"), linewidth = 1) +
+      geom_line(aes(y = rent_monthly_cost, colour = "Rent"), linewidth = 1)
+
+    colours <- c("Buy (net)" = "#27ae60", "Rent" = "#2980b9")
+
+    if (has_revenue) {
+      p <- p +
+        geom_line(
+          data = data.frame(year = d$year, y = buy_gross),
+          aes(y = y, colour = "Buy (gross, before revenue)"),
+          linewidth = 0.8, linetype = "dashed"
+        ) +
+        geom_line(
+          aes(y = buy_monthly_revenue, colour = "Home Revenue"),
+          linewidth = 0.8, linetype = "dotted"
+        )
+      colours <- c(colours,
+        "Buy (gross, before revenue)" = "#7f8c8d",
+        "Home Revenue" = "#8e44ad"
+      )
+    }
+
+    p +
       scale_y_continuous(labels = label_dollar()) +
-      scale_colour_manual(values = c("Buy" = "#27ae60", "Rent" = "#2980b9")) +
+      scale_colour_manual(values = colours) +
       labs(x = "Years", y = "Monthly Housing Cost", colour = NULL) +
       theme_minimal(base_size = 14, base_family = "Inter") +
       theme(legend.position = "top")
@@ -873,7 +1060,7 @@ server <- function(input, output, session) {
 
     data.frame(
       Year = yearly$month / 12,
-      `Mortgage P&I` = dollar(yearly$payment * 12, accuracy = 1),
+      `Mortgage Payment` = dollar(yearly$payment * 12, accuracy = 1),
       `To Interest` = dollar(yr_interest, accuracy = 1),
       `To Principal` = dollar(yr_principal, accuracy = 1),
       `Cumul. Interest` = dollar(yearly$cum_interest, accuracy = 1),
@@ -896,7 +1083,8 @@ server <- function(input, output, session) {
     milestones <- sort(unique(c(1, 3, 5, 7, 10, 15, 20, 25, 30, horizon)))
     milestones <- milestones[milestones <= horizon]
     rows <- d[d$year %in% milestones, ]
-    data.frame(
+    has_revenue <- any(d$buy_monthly_revenue > 0, na.rm = TRUE)
+    out <- data.frame(
       Year = as.integer(rows$year),
       `Home Value` = dollar(rows$home_value, accuracy = 1),
       `Loan Balance` = dollar(rows$loan_balance, accuracy = 1),
@@ -909,6 +1097,10 @@ server <- function(input, output, session) {
       `Monthly Rent Cost` = dollar(rows$rent_monthly_cost, accuracy = 1),
       check.names = FALSE
     )
+    if (has_revenue) {
+      out$`Monthly Home Revenue` <- dollar(rows$buy_monthly_revenue, accuracy = 1)
+    }
+    out
   }, striped = TRUE, hover = TRUE, spacing = "s", align = "lrrrrrrrrr")
 }
 
