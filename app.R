@@ -50,9 +50,7 @@ run_simulation <- function(
     monthly_rent, rent_increase,
     investment_return, inflation_rate,
     monthly_income, horizon_years,
-    roommate_rent = 0, roommate_occupancy = 100,
-    photoshoot_revenue = 0,
-    revenue_growth = 0
+    home_revenue = 0, revenue_growth = 0
 ) {
   months <- horizon_years * 12
 
@@ -115,12 +113,9 @@ run_simulation <- function(
 
     buy_gross_cost <- mortgage_pmt + prop_tax_monthly + ins_monthly + maint_monthly
 
-    # Rental revenue the buyer collects from the property (roommate + photoshoots).
+    # Rental revenue the buyer collects from the property (roommate, photoshoots, etc.).
     # Grows annually at revenue_growth and is netted against ownership costs.
-    revenue_multiplier <- (1 + revenue_growth / 100)^(year - 1)
-    roommate_income <- roommate_rent * (roommate_occupancy / 100) * revenue_multiplier
-    shoot_income <- photoshoot_revenue * revenue_multiplier
-    monthly_revenue <- roommate_income + shoot_income
+    monthly_revenue <- home_revenue * (1 + revenue_growth / 100)^(year - 1)
 
     buy_cost <- buy_gross_cost - monthly_revenue
     buy_monthly_cost[t] <- buy_cost
@@ -184,8 +179,7 @@ find_breakeven_price <- function(
     monthly_rent, rent_increase,
     investment_return, inflation_rate,
     monthly_income, horizon_years,
-    roommate_rent = 0, roommate_occupancy = 100,
-    photoshoot_revenue = 0, revenue_growth = 0,
+    home_revenue = 0, revenue_growth = 0,
     tol = 500
 ) {
   shared <- list(
@@ -199,8 +193,7 @@ find_breakeven_price <- function(
     rent_increase = rent_increase, investment_return = investment_return,
     inflation_rate = inflation_rate, monthly_income = monthly_income,
     horizon_years = horizon_years,
-    roommate_rent = roommate_rent, roommate_occupancy = roommate_occupancy,
-    photoshoot_revenue = photoshoot_revenue, revenue_growth = revenue_growth
+    home_revenue = home_revenue, revenue_growth = revenue_growth
   )
   f <- function(p) do.call(final_advantage, c(list(home_price = p), shared))
 
@@ -227,8 +220,7 @@ find_breakeven_rent <- function(
     rent_increase,
     investment_return, inflation_rate,
     monthly_income, horizon_years,
-    roommate_rent = 0, roommate_occupancy = 100,
-    photoshoot_revenue = 0, revenue_growth = 0,
+    home_revenue = 0, revenue_growth = 0,
     tol = 10
 ) {
   shared <- list(
@@ -242,8 +234,7 @@ find_breakeven_rent <- function(
     selling_cost_pct = selling_cost_pct, rent_increase = rent_increase,
     investment_return = investment_return, inflation_rate = inflation_rate,
     monthly_income = monthly_income, horizon_years = horizon_years,
-    roommate_rent = roommate_rent, roommate_occupancy = roommate_occupancy,
-    photoshoot_revenue = photoshoot_revenue, revenue_growth = revenue_growth
+    home_revenue = home_revenue, revenue_growth = revenue_growth
   )
   f <- function(r) do.call(final_advantage, c(list(monthly_rent = r), shared))
 
@@ -368,27 +359,15 @@ input_home_revenue <- accordion_panel(
     "effective monthly housing cost \u2014 the renter cannot sublet a house they don't own,",
     "so this only applies to the Buy scenario. Modeled as pre-tax nominal revenue."
   ),
-  autonumericInput("roommate_rent", "Roommate Rent ($/mo)", 0,
+  autonumericInput("home_revenue", "Monthly Home Revenue ($/mo)", 0,
     currencySymbol = "$", currencySymbolPlacement = "p",
     decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE,
     selectOnFocus = TRUE, emptyInputBehavior = "null",
     overrideMinMaxLimits = "ignore"),
   help_text(
-    "Rent collected from a roommate if you rent out a room. Set to 0 if you won't house-hack."
-  ),
-  sliderInput("roommate_occupancy", "Roommate Occupancy (%)", 0, 100, 90, step = 5),
-  help_text(
-    "Fraction of months the room is occupied. 90\u2013100% is typical for a long-term roommate;",
-    "lower it to model turnover gaps or short-term rental vacancy."
-  ),
-  autonumericInput("photoshoot_revenue", "Photoshoot Revenue ($/mo avg)", 0,
-    currencySymbol = "$", currencySymbolPlacement = "p",
-    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE,
-    selectOnFocus = TRUE, emptyInputBehavior = "null",
-    overrideMinMaxLimits = "ignore"),
-  help_text(
-    "Average monthly revenue from renting the space for photo/film shoots.",
-    "Use a realistic average: e.g., 2 shoots/mo \u00d7 $800/day = $1,600/mo."
+    "Combined monthly revenue from any rentals: roommate rent, photoshoot/film",
+    "location fees, Airbnb, ADU, etc. Use a realistic average that already accounts",
+    "for vacancy or unbooked months."
   ),
   sliderInput("revenue_growth", "Revenue Growth (%/yr)", 0, 10, 2, step = 0.5),
   help_text(
@@ -659,15 +638,15 @@ ui <- page_sidebar(
 
         tags$h4("Home Revenue (House-hacking)"),
         tags$p(
-          "If you rent a room to a roommate or use the property for photoshoots, that",
-          "revenue reduces your effective monthly housing cost. This applies only to the",
-          tags$em("Buy"), "scenario \u2014 a renter generally can't sublet or commercially",
-          "lease a home they don't own."
+          "If you rent a room to a roommate, use the property for photoshoots, host on",
+          "Airbnb, etc., that revenue reduces your effective monthly housing cost. This",
+          "applies only to the", tags$em("Buy"), "scenario \u2014 a renter generally",
+          "can't sublet or commercially lease a home they don't own."
         ),
         tags$p(
-          "The model treats roommate rent and photoshoot revenue as pre-tax nominal income",
-          "that grows each year at the Revenue Growth rate. Roommate rent is scaled by the",
-          "Occupancy % to account for vacancy between tenants. The net buy cost",
+          "The model treats the Monthly Home Revenue input as pre-tax nominal income that",
+          "grows each year at the Revenue Growth rate. Use a realistic average that already",
+          "accounts for vacancy and unbooked months. The net buy cost",
           "(gross ownership costs \u2212 revenue) is what gets compared to rent in the",
           "cash-flow matching logic; if the net buy cost drops below rent, the buyer",
           "invests the surplus each month."
@@ -737,9 +716,7 @@ server <- function(input, output, session) {
       inflation_rate = input$inflation_rate,
       monthly_income = safe_val(input$monthly_income, 12000),
       horizon_years = input$horizon,
-      roommate_rent = safe_val(input$roommate_rent, 0),
-      roommate_occupancy = safe_val(input$roommate_occupancy, 100),
-      photoshoot_revenue = safe_val(input$photoshoot_revenue, 0),
+      home_revenue = safe_val(input$home_revenue, 0),
       revenue_growth = safe_val(input$revenue_growth, 0)
     )
   })
@@ -838,9 +815,7 @@ server <- function(input, output, session) {
       inflation_rate = input$inflation_rate,
       monthly_income = safe_val(input$monthly_income, 12000),
       horizon_years = input$horizon,
-      roommate_rent = safe_val(input$roommate_rent, 0),
-      roommate_occupancy = safe_val(input$roommate_occupancy, 100),
-      photoshoot_revenue = safe_val(input$photoshoot_revenue, 0),
+      home_revenue = safe_val(input$home_revenue, 0),
       revenue_growth = safe_val(input$revenue_growth, 0)
     )
   })
