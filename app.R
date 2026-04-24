@@ -6,38 +6,54 @@ library(scales)
 
 # -- Computation ---------------------------------------------------------------
 
-compute_amortization <- function(loan_amount, annual_rate, term_years) {
+compute_amortization <- function(loan_amount, annual_rate, term_years,
+                                 extra_principal = 0) {
   n <- term_years * 12
   r <- annual_rate / 100 / 12
   if (r == 0) {
-    payment <- loan_amount / n
-    schedule <- data.frame(
-      month = seq_len(n),
-      payment = payment,
-      interest = 0,
-      principal = payment,
-      balance = loan_amount - cumsum(rep(payment, n))
-    )
-    return(schedule)
+    base_payment <- loan_amount / n
+  } else {
+    base_payment <- loan_amount * (r * (1 + r)^n) / ((1 + r)^n - 1)
   }
-  payment <- loan_amount * (r * (1 + r)^n) / ((1 + r)^n - 1)
+
   balance <- numeric(n)
   interest <- numeric(n)
   principal <- numeric(n)
+  payment_v <- numeric(n)
+  extra_v <- numeric(n)
   bal <- loan_amount
+
   for (i in seq_len(n)) {
+    if (bal <= 0) {
+      payment_v[i] <- 0
+      interest[i] <- 0
+      principal[i] <- 0
+      extra_v[i] <- 0
+      balance[i] <- 0
+      next
+    }
     int <- bal * r
-    prin <- payment - int
+    sched_prin <- base_payment - int
+    extra <- min(extra_principal, max(bal - sched_prin, 0))
+    prin <- sched_prin + extra
+    if (prin > bal) {
+      prin <- bal
+      extra <- max(prin - sched_prin, 0)
+    }
     bal <- bal - prin
     interest[i] <- int
     principal[i] <- prin
+    extra_v[i] <- extra
+    payment_v[i] <- int + prin
     balance[i] <- max(bal, 0)
   }
+
   data.frame(
     month = seq_len(n),
-    payment = payment,
+    payment = payment_v,
     interest = interest,
     principal = principal,
+    extra_principal = extra_v,
     balance = balance
   )
 }
@@ -50,7 +66,8 @@ run_simulation <- function(
     monthly_rent, rent_increase,
     investment_return, inflation_rate,
     monthly_income, horizon_years,
-    home_revenue = 0, revenue_growth = 0
+    home_revenue = 0, revenue_growth = 0,
+    extra_principal = 0
 ) {
   months <- horizon_years * 12
 
@@ -59,7 +76,8 @@ run_simulation <- function(
   upfront_cash <- down_payment + closing_costs
   loan_amount <- home_price - down_payment
 
-  amort <- compute_amortization(loan_amount, mortgage_rate, loan_term)
+  amort <- compute_amortization(loan_amount, mortgage_rate, loan_term,
+    extra_principal = extra_principal)
 
   monthly_inv_return <- (1 + investment_return / 100)^(1 / 12) - 1
 
@@ -99,10 +117,14 @@ run_simulation <- function(
     assessed_values[t + 1] <- av
 
     if (t <= nrow(amort)) {
-      mortgage_pmt <- amort$payment[t]
+      # Scheduled P&I (without extra) for cost-matching — keeps the renter's
+      # side budget unaffected by the buyer's voluntary extra principal.
+      scheduled_pmt <- amort$interest[t] + amort$principal[t] - amort$extra_principal[t]
+      extra_pmt <- amort$extra_principal[t]
       bal <- amort$balance[t]
     } else {
-      mortgage_pmt <- 0
+      scheduled_pmt <- 0
+      extra_pmt <- 0
       bal <- 0
     }
     loan_balance[t + 1] <- bal
@@ -111,14 +133,14 @@ run_simulation <- function(
     ins_monthly <- insurance_annual / 12
     maint_monthly <- hv * maintenance_pct / 100 / 12
 
-    buy_gross_cost <- mortgage_pmt + prop_tax_monthly + ins_monthly + maint_monthly
+    buy_gross_cost <- scheduled_pmt + prop_tax_monthly + ins_monthly + maint_monthly
 
     # Rental revenue the buyer collects from the property (roommate, photoshoots, etc.).
     # Grows annually at revenue_growth and is netted against ownership costs.
     monthly_revenue <- home_revenue * (1 + revenue_growth / 100)^(year - 1)
 
     buy_cost <- buy_gross_cost - monthly_revenue
-    buy_monthly_cost[t] <- buy_cost
+    buy_monthly_cost[t] <- buy_cost + extra_pmt
     buy_monthly_revenue[t] <- monthly_revenue
 
     current_rent <- monthly_rent * (1 + rent_increase / 100)^(year - 1)
@@ -141,6 +163,9 @@ run_simulation <- function(
     if (diff < 0) {
       bp <- bp + abs(diff)
     }
+    # Extra principal is cash the buyer diverts from savings into loan paydown.
+    # It reduces their investible portfolio but builds equity via the lower balance.
+    bp <- bp - extra_pmt
     buy_portfolio[t + 1] <- bp
 
     home_equity[t + 1] <- hv * (1 - selling_cost_pct / 100) - bal
@@ -180,6 +205,7 @@ find_breakeven_price <- function(
     investment_return, inflation_rate,
     monthly_income, horizon_years,
     home_revenue = 0, revenue_growth = 0,
+    extra_principal = 0,
     tol = 500
 ) {
   shared <- list(
@@ -193,7 +219,8 @@ find_breakeven_price <- function(
     rent_increase = rent_increase, investment_return = investment_return,
     inflation_rate = inflation_rate, monthly_income = monthly_income,
     horizon_years = horizon_years,
-    home_revenue = home_revenue, revenue_growth = revenue_growth
+    home_revenue = home_revenue, revenue_growth = revenue_growth,
+    extra_principal = extra_principal
   )
   f <- function(p) do.call(final_advantage, c(list(home_price = p), shared))
 
@@ -221,6 +248,7 @@ find_breakeven_rent <- function(
     investment_return, inflation_rate,
     monthly_income, horizon_years,
     home_revenue = 0, revenue_growth = 0,
+    extra_principal = 0,
     tol = 10
 ) {
   shared <- list(
@@ -234,7 +262,8 @@ find_breakeven_rent <- function(
     selling_cost_pct = selling_cost_pct, rent_increase = rent_increase,
     investment_return = investment_return, inflation_rate = inflation_rate,
     monthly_income = monthly_income, horizon_years = horizon_years,
-    home_revenue = home_revenue, revenue_growth = revenue_growth
+    home_revenue = home_revenue, revenue_growth = revenue_growth,
+    extra_principal = extra_principal
   )
   f <- function(r) do.call(final_advantage, c(list(monthly_rent = r), shared))
 
@@ -288,6 +317,17 @@ input_home <- accordion_panel(
   help_text("Annual interest rate on your loan. Even small changes have a big impact over 30 years."),
   selectInput("loan_term", "Loan Term", choices = c(15, 20, 30), selected = 30),
   help_text("Shorter terms mean higher monthly payments but far less total interest paid."),
+  autonumericInput("extra_principal", "Extra Principal Payment ($/mo)", 0,
+    currencySymbol = "$", currencySymbolPlacement = "p",
+    decimalPlaces = 0, minimumValue = 0, modifyValueOnWheel = FALSE,
+    selectOnFocus = TRUE, emptyInputBehavior = "null",
+    overrideMinMaxLimits = "ignore"),
+  help_text(
+    "Extra payment toward principal each month on top of the scheduled P&I.",
+    "Pays the loan off faster, saves interest, and builds equity sooner.",
+    "Modeled as cash diverted from your investment portfolio into the mortgage \u2014",
+    "i.e., the opportunity cost of prepaying vs. investing at the market rate is captured."
+  ),
   sliderInput("closing_cost_pct", "Closing Costs (%)", 0, 6, 3, step = 0.5),
   help_text(
     "One-time fees at purchase: appraisal, title insurance, origination fees, etc.",
@@ -594,6 +634,17 @@ ui <- page_sidebar(
             "only $361 goes to principal. By year 20, that flips. A 15-year loan builds",
             "equity much faster but costs more per month."
           ),
+          tags$dt("Extra Principal Payments"),
+          tags$dd(
+            "Paying extra each month above the scheduled P&I goes directly to principal,",
+            "shrinking the balance faster and saving compound interest. The model treats",
+            "this extra as cash diverted from your investment portfolio, so it captures",
+            "the true trade-off: prepaying earns a guaranteed ",
+            tags$em("mortgage-rate"), "return, while investing earns a (risky) market",
+            "return. If your mortgage rate < expected investment return, prepaying is",
+            "typically a worse financial move \u2014 but it provides psychological peace",
+            "of mind and guaranteed savings that the market doesn't."
+          ),
           tags$dt("Housing-to-Income Ratio"),
           tags$dd(
             "The percentage of your gross income that goes to housing. Lenders use 28%",
@@ -717,7 +768,8 @@ server <- function(input, output, session) {
       monthly_income = safe_val(input$monthly_income, 12000),
       horizon_years = input$horizon,
       home_revenue = safe_val(input$home_revenue, 0),
-      revenue_growth = safe_val(input$revenue_growth, 0)
+      revenue_growth = safe_val(input$revenue_growth, 0),
+      extra_principal = safe_val(input$extra_principal, 0)
     )
   })
 
@@ -816,7 +868,8 @@ server <- function(input, output, session) {
       monthly_income = safe_val(input$monthly_income, 12000),
       horizon_years = input$horizon,
       home_revenue = safe_val(input$home_revenue, 0),
-      revenue_growth = safe_val(input$revenue_growth, 0)
+      revenue_growth = safe_val(input$revenue_growth, 0),
+      extra_principal = safe_val(input$extra_principal, 0)
     )
   })
 
@@ -1014,13 +1067,18 @@ server <- function(input, output, session) {
     dp <- hp * input$down_pct / 100
     loan <- hp - dp
     term <- as.integer(input$loan_term)
-    a <- compute_amortization(loan, input$mortgage_rate, term)
+    extra <- safe_val(input$extra_principal, 0)
+    a <- compute_amortization(loan, input$mortgage_rate, term, extra_principal = extra)
     a$cum_interest <- cumsum(a$interest)
     a$cum_principal <- cumsum(a$principal)
+    a$cum_payment <- cumsum(a$payment)
+    a$cum_extra <- cumsum(a$extra_principal)
 
     yearly <- a[a$month %% 12 == 0, ]
     yr_interest <- yearly$cum_interest - c(0, yearly$cum_interest[-nrow(yearly)])
     yr_principal <- yearly$cum_principal - c(0, yearly$cum_principal[-nrow(yearly)])
+    yr_payment <- yearly$cum_payment - c(0, yearly$cum_payment[-nrow(yearly)])
+    yr_extra <- yearly$cum_extra - c(0, yearly$cum_extra[-nrow(yearly)])
 
     d <- sim()
     horizon <- input$horizon
@@ -1032,24 +1090,30 @@ server <- function(input, output, session) {
     sim_rows <- sim_rows[seq_len(n), ]
     yr_interest <- yr_interest[seq_len(n)]
     yr_principal <- yr_principal[seq_len(n)]
+    yr_payment <- yr_payment[seq_len(n)]
+    yr_extra <- yr_extra[seq_len(n)]
 
-    data.frame(
+    out <- data.frame(
       Year = yearly$month / 12,
-      `Mortgage Payment` = dollar(yearly$payment * 12, accuracy = 1),
+      `Mortgage Payment` = dollar(yr_payment, accuracy = 1),
       `To Interest` = dollar(yr_interest, accuracy = 1),
       `To Principal` = dollar(yr_principal, accuracy = 1),
-      `Cumul. Interest` = dollar(yearly$cum_interest, accuracy = 1),
-      `Loan Balance` = dollar(yearly$balance, accuracy = 1),
-      `Home Value` = dollar(sim_rows$home_value, accuracy = 1),
-      `Home Equity` = dollar(sim_rows$home_equity, accuracy = 1),
-      `Buy Net Worth` = dollar(sim_rows$buy_net_worth, accuracy = 1),
-      `Rent Net Worth` = dollar(sim_rows$rent_net_worth, accuracy = 1),
-      `Buy Advantage` = dollar(
-        sim_rows$buy_net_worth - sim_rows$rent_net_worth, accuracy = 1
-      ),
       check.names = FALSE
     )
-  }, striped = TRUE, hover = TRUE, spacing = "s", align = "lrrrrrrrrrr")
+    if (extra > 0) {
+      out$`Extra Principal` <- dollar(yr_extra, accuracy = 1)
+    }
+    out$`Cumul. Interest` <- dollar(yearly$cum_interest, accuracy = 1)
+    out$`Loan Balance` <- dollar(yearly$balance, accuracy = 1)
+    out$`Home Value` <- dollar(sim_rows$home_value, accuracy = 1)
+    out$`Home Equity` <- dollar(sim_rows$home_equity, accuracy = 1)
+    out$`Buy Net Worth` <- dollar(sim_rows$buy_net_worth, accuracy = 1)
+    out$`Rent Net Worth` <- dollar(sim_rows$rent_net_worth, accuracy = 1)
+    out$`Buy Advantage` <- dollar(
+      sim_rows$buy_net_worth - sim_rows$rent_net_worth, accuracy = 1
+    )
+    out
+  }, striped = TRUE, hover = TRUE, spacing = "s", align = "lrrrrrrrrrrr")
 
   # Summary table at key milestones
   output$summary_table <- renderTable({
