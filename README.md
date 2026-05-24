@@ -29,6 +29,15 @@ Both scenarios start with the same amount of cash (equal to the buyer's down pay
 - **Summary table** — key metrics at milestone years
 - **How It Works** — plain-English explainer of every concept and assumption
 
+### Saving inputs
+
+Inputs auto-save to your browser, so reopening the app on the same device restores everything. The **Saved Inputs** panel in the sidebar also lets you:
+
+- **Copy shareable link** — encodes all inputs in the URL. Open it on another device or send it to someone to load the same scenario.
+- **Download inputs (.json)** — save the current scenario to a file. Useful for keeping multiple scenarios or moving between devices/browsers.
+- **Load inputs (.json)** — restore from a downloaded file.
+- **Reset to defaults** — clear saved inputs and restore the starting values.
+
 ### Breakeven metrics
 
 - **Breakeven Home Price** — max price where buying still wins
@@ -49,10 +58,10 @@ cd rent-vs-buy
 Rscript -e 'shiny::runApp("app.R")'
 ```
 
-**Requirements:** R with `shiny`, `bslib`, `shinyWidgets`, `ggplot2`, `scales`.
+**Requirements:** R with `shiny`, `bslib`, `shinyWidgets`, `ggplot2`, `scales`, `jsonlite`.
 
 ```r
-install.packages(c("shiny", "bslib", "shinyWidgets", "ggplot2", "scales"))
+install.packages(c("shiny", "bslib", "shinyWidgets", "ggplot2", "scales", "jsonlite"))
 ```
 
 ## Deploy to shinyapps.io
