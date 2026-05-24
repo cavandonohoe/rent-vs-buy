@@ -3,6 +3,45 @@ library(bslib)
 library(shinyWidgets)
 library(ggplot2)
 library(scales)
+library(jsonlite)
+
+# -- Saved inputs --------------------------------------------------------------
+
+# Inputs that should be persisted/restored. Keep this list in sync with the UI.
+SAVED_INPUT_IDS <- c(
+  "home_price", "down_pct", "mortgage_rate", "loan_term", "extra_principal",
+  "closing_cost_pct", "home_appreciation", "selling_cost_pct",
+  "property_tax", "prop_tax_cap", "insurance_annual", "maintenance_pct",
+  "monthly_rent", "rent_increase",
+  "home_revenue", "revenue_growth",
+  "investment_return", "inflation_rate",
+  "monthly_income", "horizon"
+)
+
+# Numeric (autonumericInput) inputs need updateAutonumericInput; everything else
+# is a slider or selectInput we can update via the standard helpers.
+AUTONUMERIC_INPUTS <- c(
+  "home_price", "extra_principal", "insurance_annual",
+  "monthly_rent", "home_revenue", "monthly_income"
+)
+SELECT_INPUTS <- c("loan_term")
+
+apply_saved_inputs <- function(session, values) {
+  if (!is.list(values)) return(invisible())
+  for (id in intersect(names(values), SAVED_INPUT_IDS)) {
+    val <- values[[id]]
+    if (is.null(val) || length(val) == 0) next
+    if (length(val) == 1 && is.na(val)) next
+    if (id %in% AUTONUMERIC_INPUTS) {
+      shinyWidgets::updateAutonumericInput(session, id, value = val)
+    } else if (id %in% SELECT_INPUTS) {
+      updateSelectInput(session, id, selected = as.character(val))
+    } else {
+      updateSliderInput(session, id, value = val)
+    }
+  }
+  invisible()
+}
 
 # -- Computation ---------------------------------------------------------------
 
@@ -428,6 +467,38 @@ input_financial <- accordion_panel(
   help_text("General price inflation. Included for reference; the model uses nominal values.")
 )
 
+input_saved <- accordion_panel(
+  "Saved Inputs",
+  icon = icon("bookmark"),
+  help_text(
+    "Your inputs auto-save to this browser, so they're restored next time you ",
+    "visit on the same device. To move inputs between devices, share with ",
+    "someone, or keep multiple scenarios, use the buttons below."
+  ),
+  div(
+    class = "d-grid gap-2 mt-2",
+    actionButton(
+      "copy_link", "Copy shareable link",
+      icon = icon("link"), class = "btn-outline-primary btn-sm"
+    ),
+    downloadButton(
+      "download_inputs", "Download inputs (.json)",
+      icon = icon("download"), class = "btn-outline-secondary btn-sm"
+    ),
+    fileInput(
+      "upload_inputs", NULL,
+      buttonLabel = list(icon("upload"), " Load inputs (.json)"),
+      placeholder = "No file selected",
+      accept = c("application/json", ".json")
+    ),
+    actionButton(
+      "reset_inputs", "Reset to defaults",
+      icon = icon("rotate-left"), class = "btn-outline-danger btn-sm"
+    )
+  ),
+  div(id = "saved_status", class = "text-muted small mt-2")
+)
+
 input_personal <- accordion_panel(
   "Personal",
   icon = icon("user"),
@@ -455,7 +526,8 @@ ui <- page_sidebar(
     base_font = font_google("Inter"),
     "navbar-bg" = "#2c3e50"
   ),
-  tags$head(tags$style(HTML("
+  tags$head(
+    tags$style(HTML("
     .bslib-value-box .value-box-value {
       font-size: clamp(1rem, 2.5vw, 1.75rem) !important;
       white-space: nowrap !important;
@@ -465,7 +537,96 @@ ui <- page_sidebar(
       white-space: nowrap !important;
       overflow: visible !important;
     }
-  "))),
+    #saved_status.flash {
+      color: #27ae60 !important;
+      transition: color 0.3s ease;
+    }
+  ")),
+    tags$script(HTML(sprintf("
+    (function() {
+      var STORAGE_KEY = 'rentVsBuy.inputs.v1';
+      var SAVED_IDS = %s;
+      var QUERY_PARAM = 'inputs';
+
+      function flashStatus(msg) {
+        var el = document.getElementById('saved_status');
+        if (!el) return;
+        el.textContent = msg;
+        el.classList.add('flash');
+        setTimeout(function() { el.classList.remove('flash'); }, 1500);
+      }
+
+      function readQueryInputs() {
+        try {
+          var qs = new URLSearchParams(window.location.search);
+          var raw = qs.get(QUERY_PARAM);
+          if (!raw) return null;
+          var json = atob(raw.replace(/-/g, '+').replace(/_/g, '/'));
+          return JSON.parse(decodeURIComponent(escape(json)));
+        } catch (e) {
+          console.warn('Failed to parse inputs from URL', e);
+          return null;
+        }
+      }
+
+      function readLocalInputs() {
+        try {
+          var raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return null;
+          return JSON.parse(raw);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function encodeForUrl(obj) {
+        var json = JSON.stringify(obj);
+        var b64 = btoa(unescape(encodeURIComponent(json)));
+        return b64.replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+      }
+
+      Shiny.addCustomMessageHandler('rvb_save_local', function(values) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(values));
+        } catch (e) {}
+      });
+
+      Shiny.addCustomMessageHandler('rvb_clear_local', function(_) {
+        try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+        flashStatus('Cleared saved inputs.');
+      });
+
+      Shiny.addCustomMessageHandler('rvb_copy_link', function(values) {
+        var url = window.location.origin + window.location.pathname +
+          '?' + QUERY_PARAM + '=' + encodeForUrl(values);
+        var done = function() { flashStatus('Link copied to clipboard.'); };
+        var fail = function() {
+          window.prompt('Copy this link to share/save your inputs:', url);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(done, fail);
+        } else {
+          fail();
+        }
+      });
+
+      Shiny.addCustomMessageHandler('rvb_flash_status', function(msg) {
+        flashStatus(msg);
+      });
+
+      // On startup, send any existing URL/localStorage inputs to R.
+      $(document).on('shiny:connected', function() {
+        var fromUrl = readQueryInputs();
+        var fromLocal = readLocalInputs();
+        var payload = fromUrl || fromLocal || null;
+        Shiny.setInputValue('rvb_initial_inputs', {
+          values: payload,
+          source: fromUrl ? 'url' : (fromLocal ? 'local' : 'none')
+        }, { priority: 'event' });
+      });
+    })();
+  ", jsonlite::toJSON(SAVED_INPUT_IDS))))
+  ),
   sidebar = sidebar(
     width = 360,
     accordion(
@@ -475,7 +636,8 @@ ui <- page_sidebar(
       input_rental,
       input_home_revenue,
       input_financial,
-      input_personal
+      input_personal,
+      input_saved
     )
   ),
   layout_columns(
@@ -747,6 +909,96 @@ server <- function(input, output, session) {
   safe_val <- function(x, default = 0) {
     if (is.null(x) || length(x) == 0 || is.na(x)) default else x
   }
+
+  # -- Saved inputs: capture, restore, persist ---------------------------------
+
+  current_input_values <- function() {
+    vals <- list()
+    for (id in SAVED_INPUT_IDS) {
+      v <- isolate(input[[id]])
+      if (!is.null(v) && length(v) > 0 && !all(is.na(v))) {
+        vals[[id]] <- v
+      }
+    }
+    vals
+  }
+
+  # Track the initial restore so we don't immediately overwrite the saved blob
+  # with defaults during the brief moment before inputs are reapplied.
+  has_restored <- reactiveVal(FALSE)
+
+  observeEvent(input$rvb_initial_inputs, {
+    payload <- input$rvb_initial_inputs
+    if (!is.null(payload$values)) {
+      apply_saved_inputs(session, payload$values)
+      msg <- if (identical(payload$source, "url")) {
+        "Loaded inputs from link."
+      } else {
+        "Restored your saved inputs."
+      }
+      session$sendCustomMessage("rvb_flash_status", msg)
+    }
+    has_restored(TRUE)
+  }, ignoreNULL = FALSE, once = TRUE)
+
+  # Debounce auto-save so we don't hammer localStorage on every slider tick.
+  inputs_to_save <- reactive({
+    lapply(SAVED_INPUT_IDS, function(id) input[[id]])
+  }) |> debounce(500)
+
+  observe({
+    inputs_to_save()
+    if (!isTRUE(has_restored())) return()
+    session$sendCustomMessage("rvb_save_local", current_input_values())
+  })
+
+  observeEvent(input$copy_link, {
+    session$sendCustomMessage("rvb_copy_link", current_input_values())
+  })
+
+  output$download_inputs <- downloadHandler(
+    filename = function() {
+      paste0("rent-vs-buy-inputs-", format(Sys.Date(), "%Y%m%d"), ".json")
+    },
+    content = function(file) {
+      jsonlite::write_json(
+        current_input_values(), file,
+        auto_unbox = TRUE, pretty = TRUE
+      )
+    },
+    contentType = "application/json"
+  )
+
+  observeEvent(input$upload_inputs, {
+    f <- input$upload_inputs
+    if (is.null(f)) return()
+    parsed <- tryCatch(
+      jsonlite::read_json(f$datapath, simplifyVector = TRUE),
+      error = function(e) NULL
+    )
+    if (is.null(parsed) || !is.list(parsed)) {
+      session$sendCustomMessage("rvb_flash_status", "Could not read that file.")
+      return()
+    }
+    apply_saved_inputs(session, parsed)
+    session$sendCustomMessage("rvb_flash_status", "Loaded inputs from file.")
+  })
+
+  observeEvent(input$reset_inputs, {
+    defaults <- list(
+      home_price = 1000000, down_pct = 20, mortgage_rate = 6.5,
+      loan_term = "30", extra_principal = 0, closing_cost_pct = 3,
+      home_appreciation = 3, selling_cost_pct = 5,
+      property_tax = 1.1, prop_tax_cap = 2, insurance_annual = 1800,
+      maintenance_pct = 1,
+      monthly_rent = 3000, rent_increase = 2,
+      home_revenue = 0, revenue_growth = 2,
+      investment_return = 7, inflation_rate = 2.5,
+      monthly_income = 12000, horizon = 15
+    )
+    apply_saved_inputs(session, defaults)
+    session$sendCustomMessage("rvb_clear_local", "")
+  })
 
   sim <- reactive({
     run_simulation(
