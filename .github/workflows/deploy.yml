@@ -88,6 +88,22 @@ jobs:
         run: |
           Rscript -e '
             options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+            # Inspect manifest before deploy
+            rsconnect::writeManifest(appDir = ".")
+            cat("=== manifest.json (first 200 lines) ===\n")
+            mf <- readLines("manifest.json")
+            writeLines(head(mf, 200))
+            cat("=== package section ===\n")
+            j <- jsonlite::fromJSON("manifest.json", simplifyVector = FALSE)
+            for (nm in names(j$packages)) {
+              p <- j$packages[[nm]]
+              cat(sprintf("  %s: source=%s repo=%s\n",
+                          nm,
+                          if (is.null(p$Source)) "(none)" else p$Source,
+                          if (is.null(p$Repository)) "(none)" else p$Repository))
+            }
+
             rsconnect::deployApp(
               appDir = ".",
               appName = "rent-vs-buy",
