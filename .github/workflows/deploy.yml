@@ -19,45 +19,64 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       SHINYAPPS_NAME: ${{ secrets.SHINYAPPS_NAME }}
       SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
       SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
-      R_LIB: ${{ github.workspace }}/R-libs
     steps:
       - uses: actions/checkout@v4
 
       - uses: r-lib/actions/setup-r@v2
 
-      - name: Create user library
-        run: mkdir -p "$R_LIB"
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::rsconnect
+            any::shiny
+            any::bslib
+            any::shinyWidgets
+            any::ggplot2
+            any::scales
+            any::jsonlite
+            any::cpp11
+            any::isoband
 
-      # We deliberately do NOT use setup-r-dependencies / pak / RSPM here.
-      # rsconnect's manifest snapshot records the Repository field from the
-      # installed packages' DESCRIPTION metadata. pak/RSPM writes
-      # "Repository: RSPM" and shinyapps.io's image builder rejects that
-      # source URL scheme. install.packages() from CRAN writes
-      # "Repository: CRAN", which the build server accepts.
-      - name: Install runtime packages from CRAN
+      # setup-r-dependencies installs binaries from Posit Package Manager
+      # (RSPM), which is fast and handles system libs, but writes
+      # "Repository: RSPM" into every package's DESCRIPTION file. When
+      # rsconnect builds the deploy manifest it reads that field, and
+      # shinyapps.io's image builder rejects the manifest with
+      # "Unsupported url scheme: RSPM/src/contrib/<pkg>.tar.gz".
+      #
+      # Rewrite Repository: RSPM -> Repository: CRAN in every installed
+      # package's DESCRIPTION before deploy. The CRAN binary is identical
+      # to the RSPM binary for these packages, so this is a metadata-only
+      # fix.
+      - name: Rewrite RSPM -> CRAN in installed DESCRIPTION files
         run: |
           Rscript -e '
-            lib <- Sys.getenv("R_LIB")
-            .libPaths(c(lib, .libPaths()))
-            cat("install lib paths:\n"); print(.libPaths())
-            options(repos = c(CRAN = "https://cloud.r-project.org"))
-            install.packages(c(
-              "rsconnect", "shiny", "bslib", "shinyWidgets",
-              "ggplot2", "scales", "jsonlite"
-            ), lib = lib)
-            cat("installed:\n"); print(list.files(lib))
+            libs <- .libPaths()
+            for (lib in libs) {
+              desc_files <- list.files(
+                lib, pattern = "^DESCRIPTION$",
+                recursive = TRUE, full.names = TRUE
+              )
+              for (f in desc_files) {
+                txt <- readLines(f, warn = FALSE)
+                new <- sub("^Repository:[[:space:]]*RSPM[[:space:]]*$",
+                           "Repository: CRAN", txt)
+                if (!identical(txt, new)) {
+                  writeLines(new, f)
+                }
+              }
+            }
+            cat("done rewriting DESCRIPTION files\n")
           '
 
       - name: Configure rsconnect
         run: |
           Rscript -e '
-            .libPaths(c(Sys.getenv("R_LIB"), .libPaths()))
-            cat("lib paths:\n"); print(.libPaths())
             rsconnect::setAccountInfo(
               name = Sys.getenv("SHINYAPPS_NAME"),
               token = Sys.getenv("SHINYAPPS_TOKEN"),
@@ -68,7 +87,6 @@ jobs:
       - name: Deploy
         run: |
           Rscript -e '
-            .libPaths(c(Sys.getenv("R_LIB"), .libPaths()))
             options(repos = c(CRAN = "https://cloud.r-project.org"))
             rsconnect::deployApp(
               appDir = ".",
