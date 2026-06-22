@@ -41,6 +41,8 @@ jobs:
             any::ggplot2
             any::scales
             any::jsonlite
+            any::cpp11
+            any::isoband
 
       - name: Configure rsconnect
         run: |
