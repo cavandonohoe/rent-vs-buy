@@ -19,35 +19,31 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       SHINYAPPS_NAME: ${{ secrets.SHINYAPPS_NAME }}
       SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
       SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
-      # shinyapps.io's image builder only fetches package sources from
-      # CRAN-style URLs. Force renv (used by rsconnect to capture the
-      # manifest) to record Source: CRAN regardless of where pak/RSPM
-      # actually installed the binaries on this runner. Without this,
-      # rsconnect emits Source: RSPM and the server-side build fails with
-      # "Unsupported url scheme: RSPM/src/contrib/<pkg>.tar.gz".
-      RENV_CONFIG_REPOS_OVERRIDE: https://cloud.r-project.org
     steps:
       - uses: actions/checkout@v4
 
       - uses: r-lib/actions/setup-r@v2
 
-      - uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          packages: |
-            any::rsconnect
-            any::shiny
-            any::bslib
-            any::shinyWidgets
-            any::ggplot2
-            any::scales
-            any::jsonlite
-            any::cpp11
-            any::isoband
+      # We deliberately do NOT use setup-r-dependencies / pak / RSPM here.
+      # rsconnect's manifest snapshot records the Repository field from the
+      # installed packages' DESCRIPTION metadata. pak/RSPM writes
+      # "Repository: RSPM" and shinyapps.io's image builder rejects that
+      # source URL scheme. install.packages() from CRAN writes
+      # "Repository: CRAN", which the build server accepts.
+      - name: Install runtime packages from CRAN
+        run: |
+          Rscript -e '
+            options(repos = c(CRAN = "https://cloud.r-project.org"))
+            install.packages(c(
+              "rsconnect", "shiny", "bslib", "shinyWidgets",
+              "ggplot2", "scales", "jsonlite"
+            ))
+          '
 
       - name: Configure rsconnect
         run: |
