@@ -24,18 +24,14 @@ jobs:
       SHINYAPPS_NAME: ${{ secrets.SHINYAPPS_NAME }}
       SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
       SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
-      # Persist the user library across steps so install.packages in one
-      # step is visible to Rscript in the next step. Without this, each
-      # `run:` is a fresh shell with no R_LIBS_USER set, and packages
-      # installed in step N aren't found in step N+1.
-      R_LIBS_USER: ${{ github.workspace }}/R-libs
+      R_LIB: ${{ github.workspace }}/R-libs
     steps:
       - uses: actions/checkout@v4
 
       - uses: r-lib/actions/setup-r@v2
 
       - name: Create user library
-        run: mkdir -p "$R_LIBS_USER"
+        run: mkdir -p "$R_LIB"
 
       # We deliberately do NOT use setup-r-dependencies / pak / RSPM here.
       # rsconnect's manifest snapshot records the Repository field from the
@@ -46,16 +42,22 @@ jobs:
       - name: Install runtime packages from CRAN
         run: |
           Rscript -e '
+            lib <- Sys.getenv("R_LIB")
+            .libPaths(c(lib, .libPaths()))
+            cat("install lib paths:\n"); print(.libPaths())
             options(repos = c(CRAN = "https://cloud.r-project.org"))
             install.packages(c(
               "rsconnect", "shiny", "bslib", "shinyWidgets",
               "ggplot2", "scales", "jsonlite"
-            ))
+            ), lib = lib)
+            cat("installed:\n"); print(list.files(lib))
           '
 
       - name: Configure rsconnect
         run: |
           Rscript -e '
+            .libPaths(c(Sys.getenv("R_LIB"), .libPaths()))
+            cat("lib paths:\n"); print(.libPaths())
             rsconnect::setAccountInfo(
               name = Sys.getenv("SHINYAPPS_NAME"),
               token = Sys.getenv("SHINYAPPS_TOKEN"),
@@ -66,6 +68,7 @@ jobs:
       - name: Deploy
         run: |
           Rscript -e '
+            .libPaths(c(Sys.getenv("R_LIB"), .libPaths()))
             options(repos = c(CRAN = "https://cloud.r-project.org"))
             rsconnect::deployApp(
               appDir = ".",
