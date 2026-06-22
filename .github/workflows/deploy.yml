@@ -1,0 +1,64 @@
+name: Deploy to shinyapps.io
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - app.R
+      - .github/workflows/deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::rsconnect
+            any::shiny
+            any::bslib
+            any::shinyWidgets
+            any::ggplot2
+            any::scales
+            any::jsonlite
+
+      - name: Configure rsconnect
+        env:
+          SHINYAPPS_NAME: ${{ secrets.SHINYAPPS_NAME }}
+          SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
+          SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
+        run: |
+          Rscript -e '
+            rsconnect::setAccountInfo(
+              name = Sys.getenv("SHINYAPPS_NAME"),
+              token = Sys.getenv("SHINYAPPS_TOKEN"),
+              secret = Sys.getenv("SHINYAPPS_SECRET")
+            )
+          '
+
+      - name: Deploy
+        run: |
+          Rscript -e '
+            rsconnect::deployApp(
+              appDir = ".",
+              appName = "rent-vs-buy",
+              account = Sys.getenv("SHINYAPPS_NAME"),
+              server = "shinyapps.io",
+              forceUpdate = TRUE
+            )
+          '

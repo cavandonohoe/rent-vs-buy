@@ -1,6 +1,10 @@
 # Rent vs. Buy Calculator
 
+[![Deploy to shinyapps.io](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/deploy.yml/badge.svg)](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/deploy.yml)
+
 **Live app:** [cavandonohoe.shinyapps.io/rent-vs-buy](https://cavandonohoe.shinyapps.io/rent-vs-buy/)
+
+[![Screenshot of the Rent vs. Buy calculator showing the verdict, breakeven cards, and net-worth-over-time chart](man/figures/screenshot.png)](https://cavandonohoe.shinyapps.io/rent-vs-buy/)
 
 An interactive Shiny app that compares the financial outcome of buying a home versus renting and investing the difference. Adjust any assumption and see the impact in real time.
 
@@ -65,6 +69,10 @@ install.packages(c("shiny", "bslib", "shinyWidgets", "ggplot2", "scales", "jsonl
 ```
 
 ## Deploy to shinyapps.io
+
+Pushes to `main` that touch `app.R` auto-deploy via the [Deploy workflow](.github/workflows/deploy.yml). The workflow needs three repo secrets: `SHINYAPPS_NAME`, `SHINYAPPS_TOKEN`, `SHINYAPPS_SECRET`.
+
+To deploy manually:
 
 ```r
 rsconnect::deployApp(".", appName = "rent-vs-buy", account = "cavandonohoe", server = "shinyapps.io")
