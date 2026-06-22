@@ -29,31 +29,32 @@ jobs:
 
       - uses: r-lib/actions/setup-r@v2
 
+      # Note: do NOT use the `any::` prefix on packages here. With
+      # `any::pkg`, pak writes "Source: any" and "Repository: CRAN" (the
+      # literal string "CRAN", not a URL) into the package DESCRIPTION.
+      # rsconnect then emits a manifest where shinyapps.io's image
+      # builder treats "CRAN" as a URL scheme and fails with:
+      #   Unsupported url scheme: CRAN/src/contrib/<pkg>.tar.gz
+      # Plain bare names (or `cran::pkg`) cause pak to write
+      # "Source: CRAN" + "Repository: https://...". (See PR #16 for the
+      # manifest dump that revealed this asymmetry.)
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           packages: |
-            any::rsconnect
-            any::shiny
-            any::bslib
-            any::shinyWidgets
-            any::ggplot2
-            any::scales
-            any::jsonlite
-            any::cpp11
-            any::isoband
+            rsconnect
+            shiny
+            bslib
+            shinyWidgets
+            ggplot2
+            scales
+            jsonlite
+            cpp11
+            isoband
 
-      # setup-r-dependencies installs binaries from Posit Package Manager
-      # (RSPM), which is fast and handles system libs, but writes
-      # "Repository: RSPM" into every package's DESCRIPTION file. When
-      # rsconnect builds the deploy manifest it reads that field, and
-      # shinyapps.io's image builder rejects the manifest with
-      # "Unsupported url scheme: RSPM/src/contrib/<pkg>.tar.gz".
-      #
-      # Rewrite Repository: RSPM -> Repository: CRAN in every installed
-      # package's DESCRIPTION before deploy. The CRAN binary is identical
-      # to the RSPM binary for these packages, so this is a metadata-only
-      # fix.
-      - name: Rewrite RSPM -> CRAN in installed DESCRIPTION files
+      # setup-r-dependencies still writes "Repository: RSPM" for the
+      # bare-name packages. Rewrite RSPM -> the actual CRAN URL so the
+      # manifest source URLs resolve correctly on shinyapps.io.
+      - name: Rewrite RSPM -> CRAN URL in installed DESCRIPTION files
         run: |
           Rscript -e '
             libs <- .libPaths()
@@ -88,22 +89,6 @@ jobs:
         run: |
           Rscript -e '
             options(repos = c(CRAN = "https://cloud.r-project.org"))
-
-            # Inspect manifest before deploy
-            rsconnect::writeManifest(appDir = ".")
-            cat("=== manifest.json (first 200 lines) ===\n")
-            mf <- readLines("manifest.json")
-            writeLines(head(mf, 200))
-            cat("=== package section ===\n")
-            j <- jsonlite::fromJSON("manifest.json", simplifyVector = FALSE)
-            for (nm in names(j$packages)) {
-              p <- j$packages[[nm]]
-              cat(sprintf("  %s: source=%s repo=%s\n",
-                          nm,
-                          if (is.null(p$Source)) "(none)" else p$Source,
-                          if (is.null(p$Repository)) "(none)" else p$Repository))
-            }
-
             rsconnect::deployApp(
               appDir = ".",
               appName = "rent-vs-buy",
