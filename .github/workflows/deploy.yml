@@ -57,6 +57,12 @@ jobs:
       - name: Deploy
         run: |
           Rscript -e '
+            # shinyapps.io build server only supports CRAN as a package source;
+            # override the runner-default RSPM repo before rsconnect snapshots
+            # the manifest, otherwise the upload arrives with Source: RSPM and
+            # the server-side build fails with "Unsupported url scheme: RSPM/..."
+            options(repos = c(CRAN = "https://cloud.r-project.org"))
+            Sys.unsetenv("RENV_CONFIG_REPOS_OVERRIDE")
             rsconnect::deployApp(
               appDir = ".",
               appName = "rent-vs-buy",
