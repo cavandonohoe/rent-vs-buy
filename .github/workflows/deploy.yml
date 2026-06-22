@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - app.R
+      - R/**
       - .github/workflows/deploy.yml
   workflow_dispatch:
 
@@ -19,6 +20,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      SHINYAPPS_NAME: ${{ secrets.SHINYAPPS_NAME }}
+      SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
+      SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,10 +43,6 @@ jobs:
             any::jsonlite
 
       - name: Configure rsconnect
-        env:
-          SHINYAPPS_NAME: ${{ secrets.SHINYAPPS_NAME }}
-          SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
-          SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
         run: |
           Rscript -e '
             rsconnect::setAccountInfo(
