@@ -24,13 +24,16 @@ jobs:
       SHINYAPPS_NAME: ${{ secrets.SHINYAPPS_NAME }}
       SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
       SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
+      # shinyapps.io's image builder only fetches package sources from
+      # CRAN-style URLs. Force renv (used by rsconnect to capture the
+      # manifest) to record Source: CRAN regardless of where pak/RSPM
+      # actually installed the binaries on this runner. Without this,
+      # rsconnect emits Source: RSPM and the server-side build fails with
+      # "Unsupported url scheme: RSPM/src/contrib/<pkg>.tar.gz".
+      RENV_CONFIG_REPOS_OVERRIDE: https://cloud.r-project.org
     steps:
       - uses: actions/checkout@v4
 
-      # Install R from CRAN (no RSPM) so that rsconnect/renv records the
-      # bundled packages with Source: CRAN. shinyapps.io's build server only
-      # knows how to fetch from CRAN URLs; an RSPM source URL is rejected
-      # with "Unsupported url scheme: RSPM/...".
       - uses: r-lib/actions/setup-r@v2
 
       - uses: r-lib/actions/setup-r-dependencies@v2
@@ -59,6 +62,7 @@ jobs:
       - name: Deploy
         run: |
           Rscript -e '
+            options(repos = c(CRAN = "https://cloud.r-project.org"))
             rsconnect::deployApp(
               appDir = ".",
               appName = "rent-vs-buy",
