@@ -1,6 +1,7 @@
 # Rent vs. Buy Calculator
 
 [![Deploy to shinyapps.io](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/deploy.yml/badge.svg)](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/deploy.yml)
+[![R tests](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/test.yml/badge.svg)](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/test.yml)
 
 **Live app:** [cavandonohoe.shinyapps.io/rent-vs-buy](https://cavandonohoe.shinyapps.io/rent-vs-buy/)
 
