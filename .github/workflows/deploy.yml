@@ -24,10 +24,18 @@ jobs:
       SHINYAPPS_NAME: ${{ secrets.SHINYAPPS_NAME }}
       SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
       SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
+      # Persist the user library across steps so install.packages in one
+      # step is visible to Rscript in the next step. Without this, each
+      # `run:` is a fresh shell with no R_LIBS_USER set, and packages
+      # installed in step N aren't found in step N+1.
+      R_LIBS_USER: ${{ github.workspace }}/R-libs
     steps:
       - uses: actions/checkout@v4
 
       - uses: r-lib/actions/setup-r@v2
+
+      - name: Create user library
+        run: mkdir -p "$R_LIBS_USER"
 
       # We deliberately do NOT use setup-r-dependencies / pak / RSPM here.
       # rsconnect's manifest snapshot records the Repository field from the
