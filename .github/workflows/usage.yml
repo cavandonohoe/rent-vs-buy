@@ -1,0 +1,71 @@
+name: shinyapps.io usage badge
+
+# Daily snapshot of shinyapps.io active-hours usage (free tier = 25 hrs/mo).
+# Writes a shields.io endpoint JSON to the data-only `badges` branch, which the
+# README badge reads. Uses the same SHINYAPPS_* secrets as the deploy workflow.
+
+on:
+  schedule:
+    # 13:00 UTC daily (~6am PT). GitHub may delay scheduled runs under load.
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: usage-badge
+  cancel-in-progress: false
+
+jobs:
+  usage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SHINYAPPS_NAME: ${{ secrets.SHINYAPPS_NAME }}
+      SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
+      SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::rsconnect
+            any::jsonlite
+
+      - name: Compute usage and write badge JSON
+        run: Rscript scripts/usage_badge.R
+
+      - name: Publish badge to badges branch
+        run: |
+          set -euo pipefail
+          cp badge/usage.json /tmp/usage.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # The data-only `badges` branch holds just the badge JSON, so the
+          # daily commits never touch main's history.
+          git fetch origin badges --depth=1 || true
+          if git show-ref --verify --quiet refs/remotes/origin/badges; then
+            git checkout -B badges origin/badges
+          else
+            git checkout --orphan badges
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          mkdir -p badge
+          cp /tmp/usage.json badge/usage.json
+
+          git add badge/usage.json
+          if git diff --cached --quiet; then
+            echo "No change in usage badge; skipping commit."
+          else
+            git commit -m "Update shinyapps.io usage badge [skip ci]"
+            git push origin badges
+          fi
