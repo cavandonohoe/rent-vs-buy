@@ -74,6 +74,40 @@ jsonlite::write_json(
 cat(sprintf("Active hours (last 30d): %s / %d (%s)\n",
             format(hours_used, nsmall = 1), free_tier_hours, color))
 
+# Append a dated row to the usage-history CSV so the trend can be charted
+# over time. The workflow reads this file from the badges branch before the
+# script runs (see usage.yml) and republishes it afterward.
+history_path <- "badge/usage-history.csv"
+today <- format(Sys.Date(), "%Y-%m-%d")
+new_row <- data.frame(
+  date = today,
+  hours_used = hours_used,
+  free_tier_hours = free_tier_hours,
+  pct = round(pct * 100, 1),
+  stringsAsFactors = FALSE
+)
+if (file.exists(history_path)) {
+  history <- utils::read.csv(history_path, stringsAsFactors = FALSE)
+  # Replace any existing row for today so re-runs don't duplicate.
+  history <- history[history$date != today, , drop = FALSE]
+  history <- rbind(history, new_row)
+} else {
+  history <- new_row
+}
+history <- history[order(history$date), , drop = FALSE]
+utils::write.csv(history, history_path, row.names = FALSE)
+
+# Expose values to the GitHub Actions workflow (for the over-cap alert).
+gh_output <- Sys.getenv("GITHUB_OUTPUT")
+if (nzchar(gh_output)) {
+  cat(
+    sprintf("hours_used=%s\n", format(hours_used, nsmall = 1)),
+    sprintf("pct=%d\n", round(pct * 100)),
+    sprintf("free_tier_hours=%d\n", free_tier_hours),
+    file = gh_output, append = TRUE, sep = ""
+  )
+}
+
 # Emit a GitHub Actions job-summary block when running in CI.
 summary_path <- Sys.getenv("GITHUB_STEP_SUMMARY")
 if (nzchar(summary_path)) {
