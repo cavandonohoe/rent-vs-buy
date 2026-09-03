@@ -2,6 +2,7 @@
 
 [![Deploy to shinyapps.io](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/deploy.yml/badge.svg)](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/deploy.yml)
 [![R tests](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/test.yml/badge.svg)](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/test.yml)
+[![shinyapps.io usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fcavandonohoe%2Frent-vs-buy%2Fbadges%2Fbadge%2Fusage.json)](https://github.com/cavandonohoe/rent-vs-buy/actions/workflows/usage.yml)
 
 **Live app:** [cavandonohoe.shinyapps.io/rent-vs-buy](https://cavandonohoe.shinyapps.io/rent-vs-buy/)
 
