@@ -6,6 +6,7 @@ on:
     paths:
       - app.R
       - R/**
+      - .rscignore
       - .github/workflows/deploy.yml
   workflow_dispatch:
 
