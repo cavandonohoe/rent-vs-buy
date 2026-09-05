@@ -61,6 +61,7 @@ jobs:
           set -euo pipefail
           cp badge/usage.json /tmp/usage.json
           cp badge/usage-history.csv /tmp/usage-history.csv
+          rm -rf badge
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
